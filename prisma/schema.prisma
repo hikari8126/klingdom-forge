@@ -63,4 +63,66 @@ model Project {
   createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy   User      @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  batches     Batch[]
+  jobs        Job[]
+}
+
+enum JobType {
+  image2video
+  lipsync
+}
+
+enum JobStatus {
+  queued
+  submitted
+  processing
+  succeeded
+  failed
+}
+
+model KlingAccount {
+  id           String   @id @default(cuid())
+  label        String
+  accessKeyEnc String
+  secretKeyEnc String
+  maxConcurrent Int     @default(5)
+  enabled      Boolean  @default(true)
+  notes        String?
+  createdAt    DateTime @default(now())
+  jobs         Job[]
+}
+
+model Batch {
+  id          String   @id @default(cuid())
+  projectId   String
+  createdById String
+  source      String
+  total       Int      @default(0)
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobs        Job[]
+}
+
+model Job {
+  id              String        @id @default(cuid())
+  projectId       String
+  batchId         String?
+  createdById     String
+  type            JobType
+  status          JobStatus     @default(queued)
+  params          Json
+  klingAccountId  String?
+  klingTaskId     String?
+  resultUrl       String?
+  resultExpiresAt DateTime?
+  error           String?
+  attempts        Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  batch           Batch?        @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  klingAccount    KlingAccount? @relation(fields: [klingAccountId], references: [id])
+
+  @@index([status])
+  @@index([projectId])
 }
