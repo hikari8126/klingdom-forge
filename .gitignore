@@ -9,3 +9,5 @@ dist/
 # typescript / next.js generated
 next-env.d.ts
 *.tsbuildinfo
+
+/uploads
