@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { getHealth } from "@/lib/health";
 import { requireUser } from "@/lib/session";
@@ -43,6 +44,10 @@ export default async function Home() {
           </span>
         </div>
       </Card>
+
+      <Link href="/workspaces" className="mt-4 inline-block">
+        <Button>Vào Workspaces →</Button>
+      </Link>
     </main>
   );
 }
