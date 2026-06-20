@@ -44,3 +44,30 @@ export function Button({
     </button>
   );
 }
+
+export function TextInput({
+  className = "",
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={`glass-input rounded-xl px-3 py-2 text-sm text-white placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent ${className}`}
+      {...props}
+    />
+  );
+}
+
+export function Select({
+  className = "",
+  children,
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      className={`glass-input rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent ${className}`}
+      {...props}
+    >
+      {children}
+    </select>
+  );
+}
