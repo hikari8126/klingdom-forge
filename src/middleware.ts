@@ -1,3 +1,7 @@
+// NOTE: this imports the full auth config (which pulls in Prisma). That is fine
+// because we deploy on a Node runtime (next start / pm2 on the VPS), where the
+// middleware runs in Node — NOT Vercel Edge. If this ever ships to a true edge
+// runtime, split out an edge-safe auth.config.ts (no Prisma) for the middleware.
 import { auth } from "@/auth";
 
 export default auth((req) => {

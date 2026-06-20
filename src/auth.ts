@@ -14,6 +14,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [Google],
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
+  // Trust the host header — required behind the reverse proxy on the VPS so
+  // Auth.js builds correct callback/redirect URLs (set AUTH_URL explicitly in
+  // production if you prefer pinning it).
+  trustHost: true,
   callbacks: {
     // Gate: only verified emails in the allowed Workspace domain may sign in.
     async signIn({ profile }) {
