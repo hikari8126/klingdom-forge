@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: klingdom-forge-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: klingdom_forge
+    ports:
+      - "5432:5432"
+    volumes:
+      - forge_pgdata:/var/lib/postgresql/data
+
+volumes:
+  forge_pgdata:
