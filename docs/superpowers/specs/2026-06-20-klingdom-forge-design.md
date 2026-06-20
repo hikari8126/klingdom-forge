@@ -16,14 +16,16 @@ frosted-glass aesthetic so it reads as a sibling product.
 
 ### Scale & constraints
 - ~20 users, hundreds of clips/day.
-- One shared Kling key → one credit pool and one concurrency ceiling. The queue
-  is the core of the product.
+- **Multiple shared company Kling accounts** (KlingAccount #1, #2, …), each with
+  its own key + concurrency ceiling. Total throughput = pooled across accounts.
+  The central queue distributes jobs across accounts and is the core of the product.
 - **Local-first now, single VPS later.** Designed as one repo that runs on a dev
   machine today and lifts to a VPS by changing env vars only.
 
 ### v1 scope
-- **In:** Image→Video, Lip-sync, batch composer (4 input modes), central queue,
-  workspaces/projects, accounts + 3-tier roles, on-demand result download.
+- **In:** Image→Video, Lip-sync, batch composer (4 input modes), central queue
+  **across multiple Kling accounts**, workspaces/projects, accounts + 3-tier roles,
+  on-demand result download.
 - **Out (deliberate, extensible later):** Text→Video, Kling image generation
   (Kolors), video extend, effects. The job model is generic (`type` field) so
   adding Text→Video later is a new job type, not a rewrite.
@@ -60,20 +62,25 @@ worker.js (always-on loop)     ← claims jobs, signs Kling JWT, submits, polls 
 ## 3. The queue (heart of the system)
 
 - **Global FIFO**, with a **max-in-flight cap per user and per workspace**
-  (Super-Admin-configurable) so no one can flood the shared key.
-- A single **global concurrency ceiling** (`KLING_MAX_CONCURRENT`) tuned to what
-  the shared key allows.
+  (Super-Admin-configurable) so no one can flood the shared pool.
+- **Multiple Kling accounts**, each with its own `maxConcurrent`. The effective
+  pool concurrency = sum of `maxConcurrent` across enabled accounts.
 - **Worker = two loops:**
-  - *Dispatcher* — claim queued jobs that don't breach caps → submit to Kling →
-    mark `submitted` (store `klingTaskId`).
-  - *Poller* — check `submitted`/`processing` jobs → on `succeed` store result URL
-    + estimated expiry; on `failed` capture error. Retry with backoff on transient
-    failures.
+  - *Dispatcher* — claim queued jobs that don't breach per-user/per-workspace caps,
+    then **pick a Kling account with free capacity** (least-loaded, else
+    round-robin among enabled accounts). Submit to that account → mark `submitted`,
+    storing both `klingTaskId` and `klingAccountId`.
+  - *Poller* — check `submitted`/`processing` jobs using **the same account** that
+    owns each task → on `succeed` store result URL + estimated expiry; on `failed`
+    capture error. Retry with backoff on transient failures.
+- **Failover:** repeated auth/credit errors on an account auto-disable it; its
+  in-flight jobs are re-queued and the dispatcher routes around it.
 - **Job lifecycle:** `queued → submitted → processing → succeeded | failed`.
 
 ### Kling integration notes
-- **Auth:** Access Key + Secret Key → HS256 JWT (short expiry, e.g. 30 min),
-  sent as `Bearer`. Signed in `lib/kling.ts`, regenerated as needed.
+- **Auth (per account):** each account's Access Key + Secret Key → HS256 JWT
+  (short expiry, e.g. 30 min), sent as `Bearer`. Signed in `lib/kling.ts` per
+  account, regenerated as needed.
 - **Image→Video:** images sent to Kling as base64 (no public image hosting
   required).
 - **Lip-sync:** chains off a finished clip (by task/result) or an uploaded
@@ -93,9 +100,11 @@ worker.js (always-on loop)     ← claims jobs, signs Kling JWT, submits, polls 
 - `batches` — id, projectId, userId, name, source
   (`folder` | `csv` | `manual` | `variations`), total, createdAt.
 - `jobs` — id, projectId, batchId, userId, type (`image2video` | `lipsync`),
-  status, params (JSON), klingTaskId, resultUrl, resultExpiresAt, error,
-  createdAt, updatedAt.
-- `settings` — Kling key (ak/sk), global concurrency, default caps (single-row or
+  status, params (JSON), **klingAccountId**, klingTaskId, resultUrl,
+  resultExpiresAt, error, createdAt, updatedAt.
+- `kling_accounts` — id, label (`KlingAccount #1`, …), accessKey, secretKey,
+  maxConcurrent, enabled, notes, createdAt. (Secrets stored encrypted at rest.)
+- `settings` — default caps, default global concurrency, etc. (single-row or
   key/value).
 
 Usage/analytics derived from `jobs`.
@@ -132,8 +141,10 @@ then enqueues the whole batch atomically.
 - **Auth:** email + password (bcrypt) + signed HTTP-only cookie session. Lean, no
   NextAuth ceremony.
 - **Three tiers:**
-  - **Super Admin** (1–2 people) — holds the Kling key, sees the global queue and
-    all usage, manages users, sets caps/quotas. Only role touching billing/keys.
+  - **Super Admin** (1–2 people) — manages the **Kling accounts** (add/edit/
+    enable-disable keys, set each account's `maxConcurrent`), sees the global queue
+    and all usage + per-account load, manages users, sets caps/quotas. Only role
+    touching billing/keys.
   - **Workspace Manager** (one per workspace) — creates projects, adds/removes
     members in their workspace, sees workspace usage. Can't see other workspaces or
     the key.
@@ -157,9 +168,8 @@ then enqueues the whole batch atomically.
 
 ## 9. Open items / future
 
-- Tune `KLING_MAX_CONCURRENT` and per-user/workspace caps once the real Kling
-  plan limits are known.
+- Tune each account's `maxConcurrent` and per-user/workspace caps once the real
+  Kling plan limits are known.
 - Confirm exact Kling endpoint paths + Lip-sync request shape during
   implementation (official dev docs).
-- Future: Text→Video job type, S3/R2 storage backend, multiple Kling keys if
-  volume grows to thousands/day.
+- Future: Text→Video job type, S3/R2 storage backend.
