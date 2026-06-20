@@ -1,4 +1,5 @@
 import { createKlingClient, KlingError, type Image2VideoParams, type LipSyncParams } from "@/lib/kling";
+import { fileToBase64 } from "@/lib/uploads";
 import { pickAccount, type AccountLoad } from "@/lib/queue-policy";
 import { listEnabledAccountsDecrypted, setAccountEnabled } from "@/lib/kling-accounts";
 import {
@@ -36,10 +37,28 @@ export async function dispatchOnce(): Promise<boolean> {
   const client = createKlingClient({ accessKey: account.accessKey, secretKey: account.secretKey });
 
   try {
-    const task =
-      job.type === "image2video"
-        ? await client.createImage2Video(job.params as unknown as Image2VideoParams)
-        : await client.createLipSync(job.params as unknown as LipSyncParams);
+    let task;
+    if (job.type === "image2video") {
+      const p = job.params as {
+        imagePath: string;
+        endPath?: string;
+        prompt?: string;
+        modelName?: string;
+        mode?: "std" | "pro";
+        duration?: "5" | "10";
+      };
+      const params: Image2VideoParams = {
+        image: await fileToBase64(p.imagePath),
+        imageTail: p.endPath ? await fileToBase64(p.endPath) : undefined,
+        prompt: p.prompt,
+        modelName: p.modelName,
+        mode: p.mode,
+        duration: p.duration,
+      };
+      task = await client.createImage2Video(params);
+    } else {
+      task = await client.createLipSync(job.params as unknown as LipSyncParams);
+    }
     await attachAccountAndTask(jobId, account.id, task.taskId);
     return true;
   } catch (e) {
