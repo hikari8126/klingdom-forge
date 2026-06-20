@@ -16,7 +16,9 @@ export async function addMemberAction(formData: FormData) {
   const actor = await requireUser();
   const workspaceId = String(formData.get("workspaceId") ?? "");
   const email = String(formData.get("email") ?? "");
-  const role = String(formData.get("role") ?? "member") as WorkspaceRole;
+  // Normalize to a valid enum value — never trust the raw form string.
+  const role: WorkspaceRole =
+    String(formData.get("role") ?? "member") === "manager" ? "manager" : "member";
   await addMember(actor, workspaceId, email, role);
   revalidatePath(`/workspaces/${workspaceId}`);
 }
