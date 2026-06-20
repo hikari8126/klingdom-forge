@@ -65,6 +65,7 @@ model Project {
   createdBy   User      @relation("ProjectCreatedBy", fields: [createdById], references: [id])
   batches     Batch[]
   jobs        Job[]
+  assets      Asset[]
 }
 
 enum JobType {
@@ -73,6 +74,7 @@ enum JobType {
 }
 
 enum JobStatus {
+  draft
   queued
   submitted
   processing
@@ -124,5 +126,16 @@ model Job {
   klingAccount    KlingAccount? @relation(fields: [klingAccountId], references: [id])
 
   @@index([status])
+  @@index([projectId])
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  projectId  String
+  filename   String
+  storedPath String
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   @@index([projectId])
 }
