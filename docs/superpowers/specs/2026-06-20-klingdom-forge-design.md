@@ -92,8 +92,8 @@ worker.js (always-on loop)     ← claims jobs, signs Kling JWT, submits, polls 
 
 ## 4. Data model (sketch)
 
-- `users` — id, email, passwordHash, role (`super_admin` | `manager` | `member`),
-  createdAt.
+- `users` — id, email, name, image, role (`super_admin` | `manager` | `member`),
+  createdAt. (No password — authenticated via Google Workspace SSO.)
 - `workspaces` — id, name, maxInFlight, dailyQuota (nullable), createdBy.
 - `workspace_members` — workspaceId, userId, role (`manager` | `member`).
 - `projects` — id, workspaceId, name, createdBy.
@@ -138,8 +138,17 @@ then enqueues the whole batch atomically.
 
 ## 7. Auth & roles
 
-- **Auth:** email + password (bcrypt) + signed HTTP-only cookie session. Lean, no
-  NextAuth ceremony.
+- **Auth:** Google Workspace SSO (Sign in with Google) via Auth.js (NextAuth) with
+  the Google provider and a JWT cookie session (no DB session table). No passwords.
+  - **Domain restriction:** the sign-in callback rejects any email outside the
+    allowed Google Workspace domain (`crossian.com`, configurable via env). Any
+    other Google account is denied.
+  - **Super Admin bootstrap:** an env allowlist of emails
+    (`SUPER_ADMIN_EMAILS`, default `hoang.vietnguyen@crossian.com`) gets the
+    `super_admin` role on first login; everyone else defaults to `member`.
+  - **Prerequisite:** a Google Cloud OAuth 2.0 Client (Web) with redirect URI
+    `http://localhost:3000/api/auth/callback/google` (and the VPS URL later);
+    `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `AUTH_SECRET` / `AUTH_URL` in env.
 - **Three tiers:**
   - **Super Admin** (1–2 people) — manages the **Kling accounts** (add/edit/
     enable-disable keys, set each account's `maxConcurrent`), sees the global queue
