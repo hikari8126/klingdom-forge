@@ -48,6 +48,11 @@ export default async function Home() {
       <Link href="/workspaces" className="mt-4 inline-block">
         <Button>Vào Workspaces →</Button>
       </Link>
+      {user.role === "super_admin" && (
+        <Link href="/admin/kling-accounts" className="mt-4 ml-2 inline-block">
+          <Button variant="ghost">Kling Accounts</Button>
+        </Link>
+      )}
     </main>
   );
 }
