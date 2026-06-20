@@ -4,7 +4,12 @@ export type HealthResult = {
   error?: string;
 };
 
-type HealthDb = { $queryRaw: (...args: unknown[]) => Promise<unknown> };
+type HealthDb = {
+  $queryRaw: (
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ) => Promise<unknown>;
+};
 
 export async function getHealth(db: HealthDb): Promise<HealthResult> {
   try {
