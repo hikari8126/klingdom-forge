@@ -14,11 +14,53 @@ enum Role {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  image     String?
-  role      Role     @default(member)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String            @id @default(cuid())
+  email             String            @unique
+  name              String?
+  image             String?
+  role              Role              @default(member)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  memberships       WorkspaceMember[]
+  createdWorkspaces Workspace[]       @relation("WorkspaceCreatedBy")
+  createdProjects   Project[]         @relation("ProjectCreatedBy")
+}
+
+enum WorkspaceRole {
+  manager
+  member
+}
+
+model Workspace {
+  id          String            @id @default(cuid())
+  name        String
+  maxInFlight Int               @default(3)
+  dailyQuota  Int?
+  createdById String
+  createdBy   User              @relation("WorkspaceCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime          @default(now())
+  members     WorkspaceMember[]
+  projects    Project[]
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(member)
+  createdAt   DateTime      @default(now())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+model Project {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  createdById String
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("ProjectCreatedBy", fields: [createdById], references: [id])
 }
