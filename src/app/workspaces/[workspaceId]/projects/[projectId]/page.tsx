@@ -10,6 +10,7 @@ import AutoRefresh from "./AutoRefresh";
 export const dynamic = "force-dynamic";
 
 const STATUS_STYLE: Record<JobStatus, string> = {
+  draft: "text-muted",
   queued: "text-muted",
   submitted: "text-accent-soft",
   processing: "text-accent-soft",
