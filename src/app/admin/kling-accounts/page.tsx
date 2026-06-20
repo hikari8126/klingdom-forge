@@ -19,7 +19,7 @@ export default async function KlingAccountsPage() {
         <form action={createKlingAccountAction} className="grid gap-2">
           <TextInput name="label" placeholder="Nhãn (vd: KlingAccount #1)" required />
           <TextInput name="accessKey" placeholder="Access Key" required />
-          <TextInput name="secretKey" placeholder="Secret Key" required />
+          <TextInput name="secretKey" type="password" placeholder="Secret Key" required />
           <TextInput name="maxConcurrent" type="number" defaultValue={5} min={1} placeholder="Max concurrent" />
           <Button type="submit">Thêm account</Button>
         </form>

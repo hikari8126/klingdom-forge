@@ -29,7 +29,9 @@ export async function dispatchOnce(): Promise<boolean> {
   if (!jobId) return false;
 
   const job = await getJob(jobId);
-  if (!job) return false;
+  // Row vanished between claim and read (e.g. project/batch cascade-deleted) —
+  // there's nothing to requeue; keep draining the queue.
+  if (!job) return true;
   const account = accounts.find((a) => a.id === chosen.id)!;
   const client = createKlingClient({ accessKey: account.accessKey, secretKey: account.secretKey });
 
