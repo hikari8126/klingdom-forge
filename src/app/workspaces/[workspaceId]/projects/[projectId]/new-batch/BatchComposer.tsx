@@ -49,6 +49,17 @@ export default function BatchComposer({
         const settings: ComposerSettings = { prompt, duration, mode };
         await createImage2VideoBatchAction(workspaceId, projectId, settings, images);
       } catch (e) {
+        // A successful submit ends in redirect(), which throws NEXT_REDIRECT
+        // internally — let it propagate so the navigation actually happens.
+        if (
+          e &&
+          typeof e === "object" &&
+          "digest" in e &&
+          typeof (e as { digest?: unknown }).digest === "string" &&
+          (e as { digest: string }).digest.startsWith("NEXT_REDIRECT")
+        ) {
+          throw e;
+        }
         setError(e instanceof Error ? e.message : "Gửi batch thất bại");
       }
     });
