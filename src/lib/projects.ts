@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import type { CurrentUser } from "@/lib/session";
 import {
+  canAccessWorkspace,
   canCreateProject,
   canDeleteProject,
   type Membership,
@@ -40,4 +41,22 @@ export async function deleteProject(actor: CurrentUser, projectId: string) {
   const membership = await membershipFor(project.workspaceId, actor.id);
   if (!canDeleteProject(actor.role, membership)) throw new ForbiddenError();
   await db.project.delete({ where: { id: projectId } });
+}
+
+/** Returns the project + its workspace if the actor may access it, else null. */
+export async function getProjectForUser(actor: CurrentUser, projectId: string) {
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    include: { workspace: true },
+  });
+  if (!project) return null;
+  const membership =
+    actor.role === "super_admin"
+      ? null
+      : await db.workspaceMember.findUnique({
+          where: { workspaceId_userId: { workspaceId: project.workspaceId, userId: actor.id } },
+          select: { role: true },
+        });
+  if (!canAccessWorkspace(actor.role, membership)) return null;
+  return { project, membership };
 }

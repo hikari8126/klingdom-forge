@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { getWorkspaceForUser } from "@/lib/workspaces";
@@ -53,7 +54,12 @@ export default async function WorkspaceDetailPage({
           {workspace.projects.map((p) => (
             <Card key={p.id}>
               <div className="flex items-center justify-between">
-                <span className="text-white">{p.name}</span>
+                <Link
+                  href={`/workspaces/${workspace.id}/projects/${p.id}`}
+                  className="text-white hover:text-accent-soft"
+                >
+                  {p.name}
+                </Link>
                 {canManage && (
                   <form action={deleteProjectAction}>
                     <input type="hidden" name="workspaceId" value={workspace.id} />

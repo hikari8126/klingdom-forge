@@ -127,3 +127,8 @@ export async function markSucceeded(jobId: string, resultUrl: string) {
 export async function markFailed(jobId: string, error: string) {
   await db.job.update({ where: { id: jobId }, data: { status: "failed", error } });
 }
+
+/** All jobs in a project, newest first (for the project detail view). */
+export async function listJobsForProject(projectId: string): Promise<Job[]> {
+  return db.job.findMany({ where: { projectId }, orderBy: { createdAt: "desc" } });
+}
