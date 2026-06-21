@@ -7,7 +7,9 @@ import { ForbiddenError } from "@/lib/workspaces";
 import { assetPath } from "@/lib/assets";
 
 export type CellParams = {
+  startAssetId: string;
   imagePath: string;
+  endAssetId?: string;
   endPath?: string;
   prompt?: string;
   modelName: string;
@@ -32,7 +34,7 @@ export async function createCell(actor: CurrentUser, projectId: string, startAss
   await assertCanEdit(actor, projectId);
   const imagePath = await assetPath(startAssetId);
   if (!imagePath) throw new Error("Ảnh không tồn tại");
-  const params: CellParams = { imagePath, modelName: "kling-v2", mode: "std", duration: "5" };
+  const params: CellParams = { startAssetId, imagePath, modelName: "kling-v2", mode: "std", duration: "5" };
   return db.job.create({
     data: { projectId, createdById: actor.id, type: "image2video", status: "draft", params: params as object },
   });
@@ -59,6 +61,7 @@ export async function updateCell(
   if (patch.mode !== undefined) params.mode = patch.mode;
   if (patch.duration !== undefined) params.duration = patch.duration;
   if (patch.endAssetId !== undefined) {
+    params.endAssetId = patch.endAssetId ?? undefined;
     params.endPath = patch.endAssetId ? (await assetPath(patch.endAssetId)) ?? undefined : undefined;
   }
   return db.job.update({ where: { id: jobId }, data: { params: params as object } });

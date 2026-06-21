@@ -26,7 +26,12 @@ export default async function WorkspaceDetailPage({
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <PageHeader title={workspace.name} subtitle="Workspace" />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader title={workspace.name} subtitle="Workspace" />
+        <Link href={`/workspaces/${workspace.id}/studio`}>
+          <Button>🎬 Mở Studio →</Button>
+        </Link>
+      </div>
 
       {/* Projects */}
       <section className="mt-8">
