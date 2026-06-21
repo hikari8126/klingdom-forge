@@ -91,6 +91,23 @@ export async function duplicateCell(actor: CurrentUser, jobId: string) {
   });
 }
 
+/** Swap the start and end frames of a cell (no-op if there is no end frame). */
+export async function swapFrames(actor: CurrentUser, jobId: string) {
+  const job = await db.job.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("Cell không tồn tại");
+  await assertCanEdit(actor, job.projectId);
+  const p = { ...(job.params as CellParams) };
+  if (!p.endAssetId || !p.endPath) return job;
+  const params: CellParams = {
+    ...p,
+    startAssetId: p.endAssetId,
+    imagePath: p.endPath,
+    endAssetId: p.startAssetId,
+    endPath: p.imagePath,
+  };
+  return db.job.update({ where: { id: jobId }, data: { params: params as object } });
+}
+
 /** Generate: move a draft (or finished) cell into the queue for the worker. */
 export async function generateCell(actor: CurrentUser, jobId: string) {
   const job = await db.job.findUnique({ where: { id: jobId } });

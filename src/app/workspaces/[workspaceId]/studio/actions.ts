@@ -10,6 +10,7 @@ import {
   duplicateCell,
   deleteCell,
   generateCell,
+  swapFrames,
   listCells,
 } from "@/lib/cells";
 
@@ -61,6 +62,12 @@ export async function updateCellAction(
 ) {
   const actor = await requireUser();
   await updateCell(actor, jobId, patch);
+  rv(workspaceId);
+}
+
+export async function swapFramesAction(workspaceId: string, jobId: string) {
+  const actor = await requireUser();
+  await swapFrames(actor, jobId);
   rv(workspaceId);
 }
 

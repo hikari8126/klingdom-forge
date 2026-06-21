@@ -12,6 +12,7 @@ import {
   deleteCellAction,
   generateCellAction,
   generateAllAction,
+  swapFramesAction,
 } from "./actions";
 
 export type CellView = {
@@ -51,8 +52,40 @@ export default function Studio(props: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [over, setOver] = useState(false);
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [, start] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // UI prefs persist client-side (survive auto-refresh)
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("kdf-view");
+      if (v === "list" || v === "grid") setView(v);
+      const c = localStorage.getItem("kdf-collapsed");
+      if (c) setCollapsed(JSON.parse(c));
+    } catch {}
+  }, []);
+  function toggleView() {
+    setView((v) => {
+      const n = v === "grid" ? "list" : "grid";
+      try { localStorage.setItem("kdf-view", n); } catch {}
+      return n;
+    });
+  }
+  function toggleCollapse(id: string) {
+    setCollapsed((m) => {
+      const n = { ...m, [id]: !m[id] };
+      try { localStorage.setItem("kdf-collapsed", JSON.stringify(n)); } catch {}
+      return n;
+    });
+  }
+  function collapseAll(val: boolean) {
+    const n: Record<string, boolean> = {};
+    props.cells.forEach((c) => (n[c.id] = val));
+    setCollapsed(n);
+    try { localStorage.setItem("kdf-collapsed", JSON.stringify(n)); } catch {}
+  }
 
   const active = props.projects.find((p) => p.id === props.activeProjectId) ?? null;
   const shown = props.projects.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()));
@@ -126,22 +159,34 @@ export default function Studio(props: Props) {
                 {on && (
                   <div className="px-3 pb-3">
                     <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { upload(e.target.files); e.currentTarget.value = ""; }} />
-                    <button onClick={() => fileRef.current?.click()} className="mb-2 w-full rounded-lg border border-dashed border-border py-3 text-xs text-muted hover:border-accent hover:text-accent-soft">
-                      + Thêm / tải ảnh lên
-                    </button>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {props.assets.map((a) => (
-                        <img
-                          key={a.id}
-                          src={assetUrl(a.id)}
-                          alt={a.filename}
-                          title={a.filename}
-                          draggable
-                          onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)}
-                          className="aspect-[3/4] w-full cursor-grab rounded-lg border border-border object-cover transition hover:-translate-y-0.5 hover:border-accent"
-                        />
-                      ))}
+                    <div className="mb-2 flex items-center gap-2">
+                      <button onClick={() => fileRef.current?.click()} className="flex-1 rounded-lg border border-dashed border-border py-2.5 text-xs text-muted hover:border-accent hover:text-accent-soft">
+                        + Thêm ảnh
+                      </button>
+                      <button onClick={toggleView} title="Đổi cách xem (lưới/list)" className="rounded-lg border border-border px-2 py-2 text-muted hover:border-accent hover:text-accent-soft">
+                        {view === "grid" ? (
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
+                        )}
+                      </button>
                     </div>
+                    {view === "grid" ? (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {props.assets.map((a) => (
+                          <img key={a.id} src={assetUrl(a.id)} alt={a.filename} title={a.filename} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="aspect-[3/4] w-full cursor-grab rounded-lg border border-border object-cover transition hover:-translate-y-0.5 hover:border-accent" />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        {props.assets.map((a) => (
+                          <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent">
+                            <img src={assetUrl(a.id)} alt="" className="h-8 w-6 flex-none rounded object-cover" />
+                            <span className="truncate text-xs text-white">{a.filename}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {props.assets.length === 0 && <p className="mt-1 text-center text-[11px] text-muted">Chưa có ảnh.</p>}
                   </div>
                 )}
@@ -166,12 +211,20 @@ export default function Studio(props: Props) {
             <h1 className="mt-1 text-xl font-semibold">{active ? active.name : "Chưa có project"}</h1>
           </div>
           {active && (
-            <button
-              onClick={() => start(() => generateAllAction(props.workspaceId, active.id))}
-              className="rounded-full bg-ok px-4 py-2 text-sm font-semibold text-[#04241a] hover:brightness-110"
-            >
-              ▶ Generate tất cả
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => collapseAll(!props.cells.every((c) => collapsed[c.id]))}
+                className="rounded-full border border-border px-3 py-2 text-sm text-muted hover:border-accent hover:text-white"
+              >
+                Thu/Mở tất cả
+              </button>
+              <button
+                onClick={() => start(() => generateAllAction(props.workspaceId, active.id))}
+                className="rounded-full bg-ok px-4 py-2 text-sm font-semibold text-[#04241a] hover:brightness-110"
+              >
+                ▶ Generate tất cả
+              </button>
+            </div>
           )}
         </div>
 
@@ -197,9 +250,11 @@ export default function Studio(props: Props) {
               <Cell
                 key={c.id}
                 cell={c}
-                assets={props.assets}
+                collapsed={!!collapsed[c.id]}
+                onToggle={() => toggleCollapse(c.id)}
                 onField={(patch) => upd(c.id, patch)}
                 onSetEnd={(assetId) => upd(c.id, { endAssetId: assetId })}
+                onSwap={() => start(() => swapFramesAction(props.workspaceId, c.id))}
                 onGenerate={() => start(() => generateCellAction(props.workspaceId, c.id))}
                 onDup={() => start(() => duplicateCellAction(props.workspaceId, c.id))}
                 onDel={() => start(() => deleteCellAction(props.workspaceId, c.id))}
@@ -214,17 +269,21 @@ export default function Studio(props: Props) {
 
 function Cell({
   cell,
-  assets,
+  collapsed,
+  onToggle,
   onField,
   onSetEnd,
+  onSwap,
   onGenerate,
   onDup,
   onDel,
 }: {
   cell: CellView;
-  assets: { id: string; filename: string }[];
+  collapsed: boolean;
+  onToggle: () => void;
   onField: (patch: Parameters<typeof updateCellAction>[2]) => void;
   onSetEnd: (assetId: string) => void;
+  onSwap: () => void;
   onGenerate: () => void;
   onDup: () => void;
   onDel: () => void;
@@ -233,11 +292,39 @@ function Cell({
   const st = ST[cell.status];
   const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
 
+  const handle = (
+    <button onClick={onToggle} title={collapsed ? "Mở rộng" : "Thu gọn"} className="flex w-6 flex-none items-center justify-center self-stretch border-r border-border text-muted hover:text-accent-soft">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: collapsed ? "none" : "rotate(90deg)" }}><path d="M9 6l6 6-6 6" /></svg>
+    </button>
+  );
+
+  if (collapsed) {
+    return (
+      <div className="overflow-x-auto">
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-2.5">
+          {handle}
+          <img src={assetUrl(cell.startAssetId)} alt="" className="h-14 w-10 flex-none rounded-md border border-border object-cover" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm text-white">{cell.prompt || "(chưa có prompt)"}</div>
+            <div className="mono mt-0.5 text-[10px] text-muted">{cell.modelName} · {cell.duration}s · {cell.mode}</div>
+          </div>
+          <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
+          {cell.status === "succeeded" && cell.resultUrl && (
+            <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="flex-none text-accent-soft" title="Xem video">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto">
-      <div className="flex min-w-[1040px] items-stretch rounded-xl border border-border bg-surface p-3">
+      <div className="flex min-w-[1060px] items-stretch rounded-xl border border-border bg-surface p-3">
+        {handle}
         {/* frames */}
-        <div className="relative flex flex-none items-center gap-1.5">
+        <div className="relative ml-3 flex flex-none items-center gap-1.5">
           <img src={assetUrl(cell.startAssetId)} alt="start" className="h-[156px] w-[118px] flex-none rounded-lg border border-border object-cover" />
           {cell.endAssetId ? (
             <img src={assetUrl(cell.endAssetId)} alt="end" className="h-[156px] w-[118px] flex-none rounded-lg border border-border object-cover" />
@@ -251,6 +338,11 @@ function Cell({
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
               End frame<br />(kéo ảnh vào)
             </div>
+          )}
+          {cell.endAssetId && (
+            <button onClick={onSwap} title="Hoán đổi start/end" className="absolute left-1/2 top-1/2 z-10 grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-[#0d1116] text-white shadow-lg hover:border-accent hover:text-accent-soft">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 7h11l-3-3M16 17H5l3 3" /></svg>
+            </button>
           )}
         </div>
 
