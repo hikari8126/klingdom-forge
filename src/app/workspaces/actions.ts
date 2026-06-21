@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import type { WorkspaceRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { createWorkspace, addMember, removeMember } from "@/lib/workspaces";
@@ -8,8 +9,10 @@ import { createWorkspace, addMember, removeMember } from "@/lib/workspaces";
 export async function createWorkspaceAction(formData: FormData) {
   const actor = await requireUser();
   const name = String(formData.get("name") ?? "");
-  await createWorkspace(actor, name);
+  const ws = await createWorkspace(actor, name);
   revalidatePath("/workspaces");
+  // Jump straight into the new workspace's studio.
+  redirect(`/workspaces/${ws.id}/studio`);
 }
 
 export async function addMemberAction(formData: FormData) {
