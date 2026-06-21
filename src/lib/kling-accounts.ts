@@ -38,6 +38,11 @@ export async function createKlingAccount(
   });
 }
 
+/** Count of enabled accounts (no secrets) — used to warn when generation can't run. */
+export async function countEnabledAccounts(): Promise<number> {
+  return db.klingAccount.count({ where: { enabled: true } });
+}
+
 export async function setAccountEnabled(actor: CurrentUser, id: string, enabled: boolean) {
   assertSuperAdmin(actor);
   await db.klingAccount.update({ where: { id }, data: { enabled } });

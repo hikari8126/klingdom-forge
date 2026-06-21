@@ -41,6 +41,7 @@ type Props = {
   workspaceId: string;
   workspaceName: string;
   userName: string;
+  hasAccount: boolean;
   projects: { id: string; name: string }[];
   activeProjectId: string | null;
   assets: AssetView[];
@@ -61,12 +62,12 @@ const MODELS_MC: { value: string; label: string }[] = [
 const DURATIONS = ["3", "5", "7", "10", "15"];
 
 const ST: Record<JobStatus, { t: string; c: string }> = {
-  draft: { t: "○ Nháp", c: "text-muted" },
-  queued: { t: "○ Trong hàng đợi", c: "text-muted" },
-  submitted: { t: "● Đã gửi", c: "text-accent-soft" },
-  processing: { t: "● Đang tạo…", c: "text-accent-soft" },
-  succeeded: { t: "● Xong", c: "text-ok" },
-  failed: { t: "● Lỗi", c: "text-bad" },
+  draft: { t: "○ Nháp — chưa gửi", c: "text-muted" },
+  queued: { t: "◔ Trong hàng đợi", c: "text-muted" },
+  submitted: { t: "↗ Đang gọi API Kling…", c: "text-accent-soft" },
+  processing: { t: "⟳ Kling đang tạo video…", c: "text-accent-soft" },
+  succeeded: { t: "✓ Hoàn tất", c: "text-ok" },
+  failed: { t: "✕ Lỗi — không tạo được", c: "text-bad" },
 };
 const assetUrl = (id: string) => `/api/assets/${id}`;
 
@@ -320,7 +321,7 @@ export default function Studio(props: Props) {
           </div>
 
           <div className="border-t border-border p-3">
-            <button onClick={newProject} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-accent-soft to-accent py-3 text-sm font-semibold text-[#04212c] shadow-glow-accent transition hover:brightness-110">
+            <button onClick={newProject} className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent/45 bg-gradient-to-b from-white/[0.05] to-transparent py-3 text-sm font-semibold text-accent-soft transition hover:border-accent hover:bg-accent/10">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M12 5v14M5 12h14" /></svg>
               New Project
             </button>
@@ -358,6 +359,12 @@ export default function Studio(props: Props) {
             onDrop={(e) => { setImgOver(false); const id = e.dataTransfer.getData("text/asset"); if (id) { e.preventDefault(); handleCanvasDrop(id); } }}
             className="min-h-0 flex-1 overflow-y-auto px-7 pb-10"
           >
+            {!props.hasAccount && (
+              <div className="mb-4 flex items-center gap-3 rounded-xl border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" className="flex-none"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
+                <span>Chưa có tài khoản Kling nào đang bật — bấm Generate sẽ <b>không gọi được API</b>. Vào <button onClick={() => router.push("/admin/kling-accounts")} className="underline">Kling Accounts</button> để thêm/bật khoá.</span>
+              </div>
+            )}
             {!active && <p className="text-muted">Tạo một project ở thanh bên để bắt đầu.</p>}
             {active && props.cells.length === 0 && (
               <div className={`flex h-[70%] min-h-[320px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed text-center ${imgOver ? "border-accent bg-accent/10" : "border-border"}`}>

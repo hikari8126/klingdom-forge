@@ -1,4 +1,4 @@
-import { createKlingClient, KlingError, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
+import { createKlingClient, classifyKlingError, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
 import { fileToBase64 } from "@/lib/uploads";
 import { pickAccount, type AccountLoad } from "@/lib/queue-policy";
 import { listEnabledAccountsDecrypted, setAccountEnabled } from "@/lib/kling-accounts";
@@ -7,8 +7,12 @@ import {
   inFlightByAccount,
   attachAccountAndTask,
   requeueJob,
+  markFailed,
   getJob,
 } from "@/lib/queue";
+
+/** Max submit attempts for a transient error before the job is failed. */
+const MAX_ATTEMPTS = Number(process.env.WORKER_MAX_ATTEMPTS ?? 4);
 
 const SYSTEM_ACTOR = { id: "system", email: "", name: null, image: null, role: "super_admin" as const };
 
@@ -84,10 +88,22 @@ export async function dispatchOnce(): Promise<boolean> {
     return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (e instanceof KlingError && (e.code === 1000 || e.code === 1101 || e.code === 1102 || e.code === 1103)) {
+    const cls = classifyKlingError(e);
+    if (cls === "account") {
+      // bad/expired key or account out of credit → take the account offline, requeue for another
       await setAccountEnabled(SYSTEM_ACTOR, account.id, false);
+      await requeueJob(jobId, `Khoá/Account "${account.label}" lỗi: ${msg}`);
+    } else if (cls === "fatal") {
+      // won't succeed on retry (bad params, content policy, no model access, …) → fail loudly
+      await markFailed(jobId, msg);
+    } else {
+      // transient → requeue with a cap so it can't loop forever
+      if ((job.attempts ?? 0) + 1 >= MAX_ATTEMPTS) {
+        await markFailed(jobId, `Đã thử ${MAX_ATTEMPTS} lần, vẫn lỗi: ${msg}`);
+      } else {
+        await requeueJob(jobId, msg);
+      }
     }
-    await requeueJob(jobId, msg);
     return true;
   }
 }

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { getWorkspaceForUser } from "@/lib/workspaces";
 import { listAssets } from "@/lib/assets";
+import { countEnabledAccounts } from "@/lib/kling-accounts";
 import { listCells, type CellParams } from "@/lib/cells";
 import Studio, { type CellView } from "./Studio";
 
@@ -52,11 +53,14 @@ export default async function StudioPage({
     return rawName.slice(0, 2).toUpperCase();
   })();
 
+  const hasAccount = (await countEnabledAccounts()) > 0;
+
   return (
     <Studio
       workspaceId={params.workspaceId}
       workspaceName={result.workspace.name}
       userName={userName}
+      hasAccount={hasAccount}
       projects={projects.map((p) => ({ id: p.id, name: p.name }))}
       activeProjectId={activeProject?.id ?? null}
       assets={assets}
