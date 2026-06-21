@@ -6,9 +6,23 @@ export type Image2VideoParams = {
   prompt?: string;
   negativePrompt?: string;
   modelName?: string; // e.g. "kling-v1"
-  mode?: "std" | "pro";
-  duration?: "5" | "10";
+  mode?: "std" | "pro" | "4k";
+  duration?: string; // "3".."15" per Kling docs; "5" default
   cfgScale?: number;
+  callbackUrl?: string;
+};
+
+export type MotionControlParams = {
+  /** Reference image: base64 (no prefix) OR public URL. */
+  imageUrl: string;
+  /** Motion reference video: base64 (no prefix) OR public URL. Up to 100 MB, 3–30 s. */
+  videoUrl: string;
+  /** "image" = video ≤10 s; "video" = video ≤30 s. */
+  characterOrientation: "image" | "video";
+  mode: "std" | "pro";
+  modelName?: string; // kling-v2-6 (default) | kling-v3
+  prompt?: string;
+  keepOriginalSound?: "yes" | "no";
   callbackUrl?: string;
 };
 

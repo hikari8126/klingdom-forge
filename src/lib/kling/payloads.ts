@@ -1,4 +1,4 @@
-import type { Image2VideoParams, LipSyncParams, KlingTask } from "./types";
+import type { Image2VideoParams, LipSyncParams, MotionControlParams, KlingTask } from "./types";
 import { KlingError } from "./types";
 
 /** Build the image2video request body, omitting undefined fields. */
@@ -13,6 +13,21 @@ export function buildImage2VideoBody(
   if (p.mode !== undefined) body.mode = p.mode;
   if (p.duration !== undefined) body.duration = p.duration;
   if (p.cfgScale !== undefined) body.cfg_scale = p.cfgScale;
+  if (p.callbackUrl !== undefined) body.callback_url = p.callbackUrl;
+  return body;
+}
+
+/** Build the motion-control request body (POST /v1/videos/motion-control). */
+export function buildMotionControlBody(p: MotionControlParams): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    image_url: p.imageUrl,
+    video_url: p.videoUrl,
+    character_orientation: p.characterOrientation,
+    mode: p.mode,
+  };
+  if (p.modelName !== undefined) body.model_name = p.modelName;
+  if (p.prompt !== undefined) body.prompt = p.prompt;
+  if (p.keepOriginalSound !== undefined) body.keep_original_sound = p.keepOriginalSound;
   if (p.callbackUrl !== undefined) body.callback_url = p.callbackUrl;
   return body;
 }

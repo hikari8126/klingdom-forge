@@ -2,9 +2,9 @@ import { db } from "@/lib/db";
 import type { CurrentUser } from "@/lib/session";
 import { getProjectForUser } from "@/lib/projects";
 import { ForbiddenError } from "@/lib/workspaces";
-import { saveUpload } from "@/lib/uploads";
+import { saveUpload, mimeForFilename } from "@/lib/uploads";
 
-/** Save an uploaded image to disk + DB, scoped to a project the actor can access. */
+/** Save an uploaded file (image or video) to disk + DB, scoped to a project the actor can access. */
 export async function createAsset(
   actor: CurrentUser,
   projectId: string,
@@ -13,12 +13,13 @@ export async function createAsset(
 ) {
   const access = await getProjectForUser(actor, projectId);
   if (!access) throw new ForbiddenError();
-  const id = (await db.asset.create({ data: { projectId, filename, storedPath: "" } })).id;
+  const mime = mimeForFilename(filename);
+  const id = (await db.asset.create({ data: { projectId, filename, storedPath: "", mimeType: mime } })).id;
   const storedPath = await saveUpload(projectId, id, filename, bytes);
   return db.asset.update({
     where: { id },
     data: { storedPath },
-    select: { id: true, filename: true, storedPath: true },
+    select: { id: true, filename: true, storedPath: true, mimeType: true },
   });
 }
 
@@ -29,7 +30,7 @@ export async function listAssets(actor: CurrentUser, projectId: string) {
   return db.asset.findMany({
     where: { projectId },
     orderBy: { createdAt: "desc" },
-    select: { id: true, filename: true, storedPath: true, createdAt: true },
+    select: { id: true, filename: true, storedPath: true, mimeType: true, createdAt: true },
   });
 }
 

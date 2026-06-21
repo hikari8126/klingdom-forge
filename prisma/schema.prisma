@@ -71,6 +71,7 @@ model Project {
 enum JobType {
   image2video
   lipsync
+  motioncontrol
 }
 
 enum JobStatus {
@@ -134,6 +135,7 @@ model Asset {
   projectId  String
   filename   String
   storedPath String
+  mimeType   String?
   createdAt  DateTime @default(now())
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

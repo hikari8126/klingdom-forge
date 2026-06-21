@@ -5,17 +5,23 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "#0a0d10",
-        surface: "#141a20",
-        "surface-2": "#1a212a",
-        border: "#262b38",
-        muted: "#8c99a6",
-        accent: { DEFAULT: "#2A7B9B", hover: "#3aa6d0", soft: "#5fb8dd" },
-        ok: "#5fd08e",
-        bad: "#f87171",
-        yellow: "#f2e463",
+        bg: "rgb(var(--color-bg) / <alpha-value>)",
+        surface: "rgb(var(--color-surface) / <alpha-value>)",
+        "surface-2": "rgb(var(--color-surface-2) / <alpha-value>)",
+        border: "rgb(var(--color-border) / <alpha-value>)",
+        muted: "rgb(var(--color-muted) / <alpha-value>)",
+        accent: {
+          DEFAULT: "rgb(var(--color-accent) / <alpha-value>)",
+          hover: "rgb(var(--color-accent-hover) / <alpha-value>)",
+          soft: "rgb(var(--color-accent-soft) / <alpha-value>)",
+        },
+        ok: "rgb(var(--color-ok) / <alpha-value>)",
+        bad: "rgb(var(--color-bad) / <alpha-value>)",
+        yellow: "rgb(var(--color-yellow) / <alpha-value>)",
       },
-      boxShadow: { "glow-accent": "0 8px 30px -8px rgba(42,123,155,0.55)" },
+      boxShadow: {
+        "glow-accent": "0 8px 30px -8px rgb(var(--color-accent) / 0.55)",
+      },
     },
   },
   plugins: [],

@@ -57,6 +57,30 @@ describe("KlingClient.createLipSync", () => {
   });
 });
 
+describe("KlingClient.createMotionControl", () => {
+  it("POSTs to the motion-control endpoint with correct snake_case body", async () => {
+    const calls: Call[] = [];
+    const c = client(
+      fakeFetch({ ok: true, status: 200, json: { code: 0, data: { task_id: "mc1", task_status: "submitted" } } }, calls),
+    );
+    await c.createMotionControl({
+      imageUrl: "IMG_B64",
+      videoUrl: "VID_B64",
+      characterOrientation: "image",
+      mode: "std",
+      modelName: "kling-v2-6",
+    });
+    expect(calls[0].url).toBe("https://api.example.com/v1/videos/motion-control");
+    expect(calls[0].method).toBe("POST");
+    const body = JSON.parse(calls[0].body!);
+    expect(body.image_url).toBe("IMG_B64");
+    expect(body.video_url).toBe("VID_B64");
+    expect(body.character_orientation).toBe("image");
+    expect(body.mode).toBe("std");
+    expect(body.model_name).toBe("kling-v2-6");
+  });
+});
+
 describe("KlingClient.getTask", () => {
   it("GETs the task by kind + id and parses the result url", async () => {
     const calls: Call[] = [];

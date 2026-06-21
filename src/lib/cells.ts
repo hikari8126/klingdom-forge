@@ -13,8 +13,13 @@ export type CellParams = {
   endPath?: string;
   prompt?: string;
   modelName: string;
-  mode: "std" | "pro";
-  duration: "5" | "10";
+  mode: "std" | "pro" | "4k";
+  duration: string; // "3".."15" for image2video; not used for motioncontrol
+  // motioncontrol-only fields (present when job.type === "motioncontrol")
+  videoAssetId?: string;
+  videoPath?: string;
+  characterOrientation?: "image" | "video";
+  keepOriginalSound?: "yes" | "no";
 };
 
 async function assertCanEdit(actor: CurrentUser, projectId: string) {
@@ -47,8 +52,8 @@ export async function updateCell(
   patch: {
     prompt?: string;
     modelName?: string;
-    mode?: "std" | "pro";
-    duration?: "5" | "10";
+    mode?: "std" | "pro" | "4k";
+    duration?: string;
     endAssetId?: string | null;
   },
 ) {
@@ -105,6 +110,68 @@ export async function swapFrames(actor: CurrentUser, jobId: string) {
     endAssetId: p.startAssetId,
     endPath: p.imagePath,
   };
+  return db.job.update({ where: { id: jobId }, data: { params: params as object } });
+}
+
+/** Create a draft Motion Control cell (requires both an image and a video asset). */
+export async function createMotionCell(
+  actor: CurrentUser,
+  projectId: string,
+  imageAssetId: string,
+  videoAssetId: string,
+) {
+  await assertCanEdit(actor, projectId);
+  const imagePath = await assetPath(imageAssetId);
+  if (!imagePath) throw new Error("Ảnh tham chiếu không tồn tại");
+  const videoPath = await assetPath(videoAssetId);
+  if (!videoPath) throw new Error("Video chuyển động không tồn tại");
+  const params: CellParams = {
+    startAssetId: imageAssetId,
+    imagePath,
+    videoAssetId,
+    videoPath,
+    characterOrientation: "image",
+    keepOriginalSound: "yes",
+    modelName: "kling-v2-6",
+    mode: "std",
+    duration: "5",
+  };
+  return db.job.create({
+    data: { projectId, createdById: actor.id, type: "motioncontrol", status: "draft", params: params as object },
+  });
+}
+
+/** Update fields on a motion control cell. */
+export async function updateMotionCell(
+  actor: CurrentUser,
+  jobId: string,
+  patch: {
+    prompt?: string;
+    modelName?: string;
+    mode?: "std" | "pro";
+    characterOrientation?: "image" | "video";
+    keepOriginalSound?: "yes" | "no";
+    imageAssetId?: string | null;
+    videoAssetId?: string | null;
+  },
+) {
+  const job = await db.job.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("Cell không tồn tại");
+  await assertCanEdit(actor, job.projectId);
+  const params = { ...(job.params as CellParams) };
+  if (patch.prompt !== undefined) params.prompt = patch.prompt;
+  if (patch.modelName !== undefined) params.modelName = patch.modelName;
+  if (patch.mode !== undefined) params.mode = patch.mode;
+  if (patch.characterOrientation !== undefined) params.characterOrientation = patch.characterOrientation;
+  if (patch.keepOriginalSound !== undefined) params.keepOriginalSound = patch.keepOriginalSound;
+  if (patch.imageAssetId !== undefined) {
+    params.startAssetId = patch.imageAssetId ?? params.startAssetId;
+    params.imagePath = patch.imageAssetId ? (await assetPath(patch.imageAssetId)) ?? params.imagePath : params.imagePath;
+  }
+  if (patch.videoAssetId !== undefined && patch.videoAssetId !== null) {
+    params.videoAssetId = patch.videoAssetId;
+    params.videoPath = (await assetPath(patch.videoAssetId)) ?? params.videoPath;
+  }
   return db.job.update({ where: { id: jobId }, data: { params: params as object } });
 }
 
