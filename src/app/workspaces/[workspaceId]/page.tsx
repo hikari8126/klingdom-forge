@@ -9,7 +9,7 @@ import {
   createProjectAction,
   deleteProjectAction,
 } from "./projects/actions";
-import { addMemberAction, removeMemberAction, saveWorkspaceKlingKeyAction, clearWorkspaceKlingKeyAction } from "../actions";
+import { addMemberAction, removeMemberAction, renameWorkspaceAction, saveWorkspaceKlingKeyAction, clearWorkspaceKlingKeyAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,26 @@ export default async function WorkspaceDetailPage({
           <Button>🎬 Mở Studio →</Button>
         </Link>
       </div>
+
+      {/* Rename workspace */}
+      {canManage && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-lg font-medium text-white">Đổi tên</h2>
+          <Card>
+            <form action={renameWorkspaceAction} className="flex gap-2">
+              <input type="hidden" name="workspaceId" value={workspace.id} />
+              <TextInput
+                name="name"
+                defaultValue={workspace.name}
+                placeholder="Tên workspace"
+                required
+                className="flex-1"
+              />
+              <Button type="submit">Lưu</Button>
+            </form>
+          </Card>
+        </section>
+      )}
 
       {/* Projects */}
       <section className="mt-8">

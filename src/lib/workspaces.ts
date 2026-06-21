@@ -40,6 +40,15 @@ export async function listWorkspacesForUser(actor: CurrentUser) {
   });
 }
 
+/** Rename a workspace. Manager or super_admin only. */
+export async function renameWorkspace(actor: CurrentUser, workspaceId: string, name: string) {
+  const membership = await membershipFor(workspaceId, actor.id);
+  if (!canManageWorkspace(actor.role, membership)) throw new ForbiddenError();
+  const clean = name.trim();
+  if (!clean) throw new Error("Tên workspace không được để trống");
+  await db.workspace.update({ where: { id: workspaceId }, data: { name: clean } });
+}
+
 /** super_admin only. Creates a workspace. */
 export async function createWorkspace(actor: CurrentUser, name: string) {
   if (!canCreateWorkspace(actor.role)) throw new ForbiddenError();
