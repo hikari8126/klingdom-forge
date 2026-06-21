@@ -9,7 +9,6 @@ export async function createKlingAccountAction(formData: FormData) {
   await createKlingAccount(actor, {
     label: String(formData.get("label") ?? ""),
     accessKey: String(formData.get("accessKey") ?? ""),
-    secretKey: String(formData.get("secretKey") ?? ""),
     maxConcurrent: Number(formData.get("maxConcurrent") ?? 5),
   });
   revalidatePath("/admin/kling-accounts");

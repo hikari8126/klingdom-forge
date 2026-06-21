@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { listWorkspacesForUser } from "@/lib/workspaces";
 import { canCreateWorkspace } from "@/lib/access";
 import { Card, PageHeader, Button, TextInput } from "@/components/ui";
+import { BackButton } from "@/components/BackButton";
 import { createWorkspaceAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,8 @@ export default async function WorkspacesPage() {
   const user = await requireUser();
   const workspaces = await listWorkspacesForUser(user);
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
+    <main className="mx-auto max-w-3xl px-6 py-12">
+      <BackButton fallback="/" />
       <PageHeader title="Workspaces" subtitle="Không gian làm việc của bạn" />
 
       {canCreateWorkspace(user.role) && (

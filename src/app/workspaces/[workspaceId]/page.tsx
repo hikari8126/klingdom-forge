@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/session";
 import { getWorkspaceForUser } from "@/lib/workspaces";
 import { canManageWorkspace, canCreateProject } from "@/lib/access";
 import { Card, PageHeader, Button, TextInput, Select } from "@/components/ui";
+import { BackButton } from "@/components/BackButton";
 import {
   createProjectAction,
   deleteProjectAction,
@@ -25,7 +26,8 @@ export default async function WorkspaceDetailPage({
   const canAddProject = canCreateProject(user.role, membership);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
+    <main className="mx-auto max-w-3xl px-6 py-12">
+      <BackButton fallback={`/workspaces/${workspace.id}/studio`} />
       <div className="flex items-start justify-between gap-4">
         <PageHeader title={workspace.name} subtitle="Workspace" />
         <Link href={`/workspaces/${workspace.id}/studio`}>
