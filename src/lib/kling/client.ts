@@ -1,13 +1,14 @@
 import { signKlingJwt } from "./jwt";
-import { buildImage2VideoBody, buildLipSyncBody, parseTaskResponse } from "./payloads";
+import { buildImage2VideoBody, buildLipSyncBody, buildMotionControlBody, parseTaskResponse } from "./payloads";
 import {
   KlingError,
   type Image2VideoParams,
   type LipSyncParams,
+  type MotionControlParams,
   type KlingTask,
 } from "./types";
 
-export type KlingTaskKind = "image2video" | "lip-sync";
+export type KlingTaskKind = "image2video" | "lip-sync" | "motion-control";
 
 /** Minimal fetch shape we depend on (injectable for testing). */
 export type KlingFetch = (
@@ -84,6 +85,10 @@ export class KlingClient {
 
   createLipSync(params: LipSyncParams): Promise<KlingTask> {
     return this.request("POST", "/v1/videos/lip-sync", buildLipSyncBody(params));
+  }
+
+  createMotionControl(params: MotionControlParams): Promise<KlingTask> {
+    return this.request("POST", "/v1/videos/motion-control", buildMotionControlBody(params));
   }
 
   getTask(kind: KlingTaskKind, taskId: string): Promise<KlingTask> {

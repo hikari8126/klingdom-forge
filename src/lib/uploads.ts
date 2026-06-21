@@ -6,10 +6,39 @@ export function uploadRoot(): string {
   return process.env.UPLOAD_DIR ?? path.join(process.cwd(), "uploads");
 }
 
-/** Allow only known image extensions; fall back to .png. (.jpeg preserved.) */
+const IMAGE_EXTS = /^\.(png|jpg|jpeg|webp|gif)$/;
+const VIDEO_EXTS = /^\.(mp4|mov)$/;
+
+/** Allow only known image or video extensions. Falls back to .png for unknowns. */
 export function safeExt(filename: string): string {
   const e = path.extname(filename).toLowerCase();
-  return /^\.(png|jpg|jpeg|webp|gif)$/.test(e) ? e : ".png";
+  if (IMAGE_EXTS.test(e) || VIDEO_EXTS.test(e)) return e;
+  return ".png";
+}
+
+export function isVideoExt(filename: string): boolean {
+  return VIDEO_EXTS.test(path.extname(filename).toLowerCase());
+}
+
+export function mimeForFilename(filename: string): string {
+  const e = path.extname(filename).toLowerCase();
+  const MAP: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+  };
+  return MAP[e] ?? "application/octet-stream";
+}
+
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024; // 100 MB
+export function assertVideoSize(bytes: Buffer, filename: string): void {
+  if (bytes.byteLength > MAX_VIDEO_BYTES) {
+    throw new Error(`Video "${filename}" vượt quá 100 MB (giới hạn Kling Motion Control).`);
+  }
 }
 
 /** Deterministic on-disk path for an asset. assetId is app-generated (cuid), so the

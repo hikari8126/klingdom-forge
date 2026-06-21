@@ -1,4 +1,4 @@
-import { createKlingClient, KlingError, type Image2VideoParams, type LipSyncParams } from "@/lib/kling";
+import { createKlingClient, KlingError, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
 import { fileToBase64 } from "@/lib/uploads";
 import { pickAccount, type AccountLoad } from "@/lib/queue-policy";
 import { listEnabledAccountsDecrypted, setAccountEnabled } from "@/lib/kling-accounts";
@@ -44,18 +44,39 @@ export async function dispatchOnce(): Promise<boolean> {
         endPath?: string;
         prompt?: string;
         modelName?: string;
-        mode?: "std" | "pro";
-        duration?: "5" | "10";
+        mode?: "std" | "pro" | "4k";
+        duration?: string;
       };
       const params: Image2VideoParams = {
         image: await fileToBase64(p.imagePath),
         imageTail: p.endPath ? await fileToBase64(p.endPath) : undefined,
         prompt: p.prompt,
         modelName: p.modelName,
-        mode: p.mode,
+        mode: p.mode as "std" | "pro" | undefined,
         duration: p.duration,
       };
       task = await client.createImage2Video(params);
+    } else if (job.type === "motioncontrol") {
+      const p = job.params as {
+        imagePath: string;
+        videoPath?: string;
+        characterOrientation?: "image" | "video";
+        keepOriginalSound?: "yes" | "no";
+        mode?: "std" | "pro";
+        modelName?: string;
+        prompt?: string;
+      };
+      if (!p.videoPath) throw new Error("Motion control cell thiếu video tham chiếu");
+      const params: MotionControlParams = {
+        imageUrl: await fileToBase64(p.imagePath),
+        videoUrl: await fileToBase64(p.videoPath),
+        characterOrientation: p.characterOrientation ?? "image",
+        mode: p.mode ?? "std",
+        modelName: p.modelName,
+        prompt: p.prompt,
+        keepOriginalSound: p.keepOriginalSound,
+      };
+      task = await client.createMotionControl(params);
     } else {
       task = await client.createLipSync(job.params as unknown as LipSyncParams);
     }

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildImage2VideoBody,
   buildLipSyncBody,
+  buildMotionControlBody,
   parseTaskResponse,
 } from "@/lib/kling/payloads";
 import { KlingError } from "@/lib/kling/types";
@@ -59,6 +60,60 @@ describe("buildLipSyncBody", () => {
       },
       callback_url: "https://cb",
     });
+  });
+});
+
+describe("buildMotionControlBody", () => {
+  it("includes required fields and maps to snake_case", () => {
+    expect(
+      buildMotionControlBody({
+        imageUrl: "BASE64_IMG",
+        videoUrl: "BASE64_VID",
+        characterOrientation: "image",
+        mode: "std",
+      }),
+    ).toEqual({
+      image_url: "BASE64_IMG",
+      video_url: "BASE64_VID",
+      character_orientation: "image",
+      mode: "std",
+    });
+  });
+
+  it("includes optional fields when provided", () => {
+    expect(
+      buildMotionControlBody({
+        imageUrl: "IMG",
+        videoUrl: "VID",
+        characterOrientation: "video",
+        mode: "pro",
+        modelName: "kling-v3",
+        prompt: "walk forward",
+        keepOriginalSound: "no",
+        callbackUrl: "https://cb",
+      }),
+    ).toEqual({
+      image_url: "IMG",
+      video_url: "VID",
+      character_orientation: "video",
+      mode: "pro",
+      model_name: "kling-v3",
+      prompt: "walk forward",
+      keep_original_sound: "no",
+      callback_url: "https://cb",
+    });
+  });
+
+  it("omits optional fields when undefined", () => {
+    const body = buildMotionControlBody({
+      imageUrl: "I",
+      videoUrl: "V",
+      characterOrientation: "image",
+      mode: "std",
+    });
+    expect(body).not.toHaveProperty("model_name");
+    expect(body).not.toHaveProperty("prompt");
+    expect(body).not.toHaveProperty("keep_original_sound");
   });
 });
 

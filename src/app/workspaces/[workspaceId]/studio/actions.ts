@@ -12,7 +12,10 @@ import {
   generateCell,
   swapFrames,
   listCells,
+  createMotionCell,
+  updateMotionCell,
 } from "@/lib/cells";
+import { assertVideoSize } from "@/lib/uploads";
 
 function rv(workspaceId: string) {
   revalidatePath(`/workspaces/${workspaceId}/studio`);
@@ -55,8 +58,8 @@ export async function updateCellAction(
   patch: {
     prompt?: string;
     modelName?: string;
-    mode?: "std" | "pro";
-    duration?: "5" | "10";
+    mode?: "std" | "pro" | "4k";
+    duration?: string;
     endAssetId?: string | null;
   },
 ) {
@@ -86,6 +89,50 @@ export async function deleteCellAction(workspaceId: string, jobId: string) {
 export async function generateCellAction(workspaceId: string, jobId: string) {
   const actor = await requireUser();
   await generateCell(actor, jobId);
+  rv(workspaceId);
+}
+
+export async function uploadVideosAction(
+  workspaceId: string,
+  projectId: string,
+  formData: FormData,
+) {
+  const actor = await requireUser();
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File);
+  for (const f of files) {
+    const buf = Buffer.from(await f.arrayBuffer());
+    assertVideoSize(buf, f.name);
+    await createAsset(actor, projectId, f.name, buf);
+  }
+  rv(workspaceId);
+}
+
+export async function createMotionCellAction(
+  workspaceId: string,
+  projectId: string,
+  imageAssetId: string,
+  videoAssetId: string,
+) {
+  const actor = await requireUser();
+  await createMotionCell(actor, projectId, imageAssetId, videoAssetId);
+  rv(workspaceId);
+}
+
+export async function updateMotionCellAction(
+  workspaceId: string,
+  jobId: string,
+  patch: {
+    prompt?: string;
+    modelName?: string;
+    mode?: "std" | "pro";
+    characterOrientation?: "image" | "video";
+    keepOriginalSound?: "yes" | "no";
+    imageAssetId?: string | null;
+    videoAssetId?: string | null;
+  },
+) {
+  const actor = await requireUser();
+  await updateMotionCell(actor, jobId, patch);
   rv(workspaceId);
 }
 
