@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { getWorkspaceForUser } from "@/lib/workspaces";
 import { listAssets } from "@/lib/assets";
 import { countEnabledAccounts } from "@/lib/kling-accounts";
+import { isWorkerOnline } from "@/lib/worker-status";
 import { listCells, type CellParams } from "@/lib/cells";
 import Studio, { type CellView } from "./Studio";
 
@@ -54,6 +55,7 @@ export default async function StudioPage({
   })();
 
   const hasAccount = (await countEnabledAccounts()) > 0;
+  const workerOnline = await isWorkerOnline();
 
   return (
     <Studio
@@ -61,6 +63,7 @@ export default async function StudioPage({
       workspaceName={result.workspace.name}
       userName={userName}
       hasAccount={hasAccount}
+      workerOnline={workerOnline}
       projects={projects.map((p) => ({ id: p.id, name: p.name }))}
       activeProjectId={activeProject?.id ?? null}
       assets={assets}

@@ -141,3 +141,8 @@ model Asset {
 
   @@index([projectId])
 }
+
+model WorkerStatus {
+  id     String   @id @default("singleton")
+  beatAt DateTime @default(now())
+}

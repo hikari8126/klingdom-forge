@@ -42,6 +42,7 @@ type Props = {
   workspaceName: string;
   userName: string;
   hasAccount: boolean;
+  workerOnline: boolean;
   projects: { id: string; name: string }[];
   activeProjectId: string | null;
   assets: AssetView[];
@@ -70,6 +71,17 @@ const ST: Record<JobStatus, { t: string; c: string }> = {
   failed: { t: "✕ Lỗi — không tạo được", c: "text-bad" },
 };
 const assetUrl = (id: string) => `/api/assets/${id}`;
+
+function genLabel(s: JobStatus): string {
+  switch (s) {
+    case "queued": return "◔ Trong hàng đợi";
+    case "submitted": return "↗ Đang gọi API…";
+    case "processing": return "⟳ Đang tạo…";
+    case "succeeded": return "↻ Tạo lại";
+    case "failed": return "↻ Thử lại";
+    default: return "▶ Generate";
+  }
+}
 
 const THEMES = [
   { id: "teal", label: "Studio Teal", color: "#2A7B9B" },
@@ -210,6 +222,15 @@ export default function Studio(props: Props) {
         </div>
 
         <div className="flex-1" />
+
+        {/* worker status */}
+        <div
+          className={`mono flex items-center gap-1.5 rounded-full border px-3 py-1 ${props.workerOnline ? "border-ok/40 text-ok" : "border-bad/50 text-bad"}`}
+          title={props.workerOnline ? "Worker đang chạy — job sẽ được xử lý" : "Worker offline — chạy `npm run worker`"}
+        >
+          <span className={`h-1.5 w-1.5 flex-none rounded-full ${props.workerOnline ? "bg-ok" : "bg-bad"}`} />
+          {props.workerOnline ? "Worker online" : "Worker offline"}
+        </div>
 
         {/* usage pill */}
         <div className="mono flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-muted">
@@ -363,6 +384,12 @@ export default function Studio(props: Props) {
               <div className="mb-4 flex items-center gap-3 rounded-xl border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" className="flex-none"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
                 <span>Chưa có tài khoản Kling nào đang bật — bấm Generate sẽ <b>không gọi được API</b>. Vào <button onClick={() => router.push("/admin/kling-accounts")} className="underline">Kling Accounts</button> để thêm/bật khoá.</span>
+              </div>
+            )}
+            {props.hasAccount && !props.workerOnline && (
+              <div className="mb-4 flex items-center gap-3 rounded-xl border border-yellow/45 bg-yellow/10 px-4 py-3 text-sm text-yellow">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" className="flex-none"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                <span>Tiến trình <b>worker đang offline</b> — job sẽ nằm trong hàng đợi và không chạy. Mở terminal chạy <code className="rounded bg-black/30 px-1">npm run worker</code> (hoặc <code className="rounded bg-black/30 px-1">npm run dev:all</code>).</span>
               </div>
             )}
             {!active && <p className="text-muted">Tạo một project ở thanh bên để bắt đầu.</p>}
@@ -586,11 +613,7 @@ function Cell({
             disabled={busy}
             className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
           >
-            {cell.status === "processing" || cell.status === "submitted" || cell.status === "queued"
-              ? "Đang chạy…"
-              : cell.status === "succeeded"
-                ? "Tạo lại"
-                : "▶ Generate"}
+            {genLabel(cell.status)}
           </button>
           <button onClick={onDup} className="rounded-lg border border-accent/50 bg-accent/15 px-1.5 py-2 text-[10.5px] font-semibold text-accent-soft hover:bg-accent/25">+ Biến thể</button>
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
@@ -770,13 +793,7 @@ function MotionCell({
             disabled={busy || !cell.videoAssetId}
             className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : !cell.videoAssetId ? "cursor-not-allowed bg-surface-2 text-muted" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
           >
-            {cell.status === "processing" || cell.status === "submitted" || cell.status === "queued"
-              ? "Đang chạy…"
-              : !cell.videoAssetId
-                ? "Cần video"
-                : cell.status === "succeeded"
-                  ? "Tạo lại"
-                  : "▶ Generate"}
+            {!busy && !cell.videoAssetId ? "Cần video" : genLabel(cell.status)}
           </button>
           <button onClick={onDup} className="rounded-lg border border-accent/50 bg-accent/15 px-1.5 py-2 text-[10.5px] font-semibold text-accent-soft hover:bg-accent/25">+ Biến thể</button>
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
