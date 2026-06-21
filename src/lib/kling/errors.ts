@@ -11,11 +11,12 @@ export type KlingErrorClass = "account" | "fatal" | "retry";
 export function classifyKlingError(err: unknown): KlingErrorClass {
   if (err instanceof KlingError && typeof err.code === "number") {
     const c = err.code;
-    // auth (bad/empty/invalid/expired key) + account billing/exhausted
-    if ([1000, 1001, 1002, 1004, 1100, 1101, 1102].includes(c)) return "account";
-    // token-not-yet-valid, rate/concurrency limit, server errors
+    // auth (bad/empty/invalid/expired key) or abnormal account → take the account offline
+    if ([1000, 1001, 1002, 1004, 1100].includes(c)) return "account";
+    // token-not-yet-valid, rate/concurrency limit, server errors → retry
     if ([1003, 1302, 1303, 5000, 5001, 5002].includes(c)) return "retry";
-    // everything else (bad params, content policy, no model access, IP whitelist, unknown) → surface it
+    // everything else (out of balance/credit 1101/1102, bad params, content policy,
+    // no model access, IP whitelist, unknown) → fail the job with the reason, keep the account enabled
     return "fatal";
   }
   // network / unknown (no KlingError code) → transient

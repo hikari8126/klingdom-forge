@@ -4,8 +4,8 @@ import { classifyKlingError, KlingError } from "@/lib/kling";
 const ke = (code?: number) => new KlingError("x", code);
 
 describe("classifyKlingError", () => {
-  it("auth + account-billing codes → account (disable + requeue)", () => {
-    for (const c of [1000, 1001, 1002, 1004, 1100, 1101, 1102]) {
+  it("auth + abnormal-account codes → account (disable + requeue)", () => {
+    for (const c of [1000, 1001, 1002, 1004, 1100]) {
       expect(classifyKlingError(ke(c))).toBe("account");
     }
   });
@@ -14,8 +14,8 @@ describe("classifyKlingError", () => {
       expect(classifyKlingError(ke(c))).toBe("retry");
     }
   });
-  it("bad params / content policy / no model access / IP whitelist → fatal", () => {
-    for (const c of [1103, 1200, 1201, 1202, 1203, 1300, 1301, 1304]) {
+  it("out-of-balance / bad params / content policy / no model access / IP whitelist → fatal", () => {
+    for (const c of [1101, 1102, 1103, 1200, 1201, 1202, 1203, 1300, 1301, 1304]) {
       expect(classifyKlingError(ke(c))).toBe("fatal");
     }
   });
