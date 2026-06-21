@@ -13,12 +13,12 @@ import type { KlingClientOptions } from "./client";
  */
 export function createKlingClient(opts: {
   accessKey: string;
-  secretKey: string;
+  secretKey?: string;
   baseUrl?: string;
 }): KlingClient {
   return new KlingClient({
     accessKey: opts.accessKey,
     secretKey: opts.secretKey,
-    baseUrl: opts.baseUrl ?? process.env.KLING_BASE_URL ?? "https://api.klingai.com",
+    baseUrl: opts.baseUrl ?? process.env.KLING_BASE_URL ?? "https://api-singapore.klingai.com",
   });
 }

@@ -16,8 +16,10 @@ export type KlingFetch = (
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
 
 export type KlingClientOptions = {
+  /** API Key (new auth) OR Access Key (legacy, paired with secretKey). */
   accessKey: string;
-  secretKey: string;
+  /** Legacy Secret Key. Omit for the new single-API-key auth. */
+  secretKey?: string;
   baseUrl?: string;
   fetchFn?: KlingFetch;
   nowSeconds?: () => number;
@@ -26,22 +28,27 @@ export type KlingClientOptions = {
 export class KlingClient {
   private readonly baseUrl: string;
   private readonly accessKey: string;
-  private readonly secretKey: string;
+  private readonly secretKey?: string;
   private readonly fetchFn: KlingFetch;
   private readonly nowSeconds: () => number;
 
   constructor(opts: KlingClientOptions) {
     this.accessKey = opts.accessKey;
     this.secretKey = opts.secretKey;
-    this.baseUrl = (opts.baseUrl ?? "https://api.klingai.com").replace(/\/+$/, "");
+    this.baseUrl = (opts.baseUrl ?? "https://api-singapore.klingai.com").replace(/\/+$/, "");
     this.fetchFn =
       opts.fetchFn ??
       ((url, init) => fetch(url, init) as unknown as ReturnType<KlingFetch>);
     this.nowSeconds = opts.nowSeconds ?? (() => Math.floor(Date.now() / 1000));
   }
 
+  // New auth: the accessKey IS the API key → Bearer <key>.
+  // Legacy auth: sign a JWT from accessKey + secretKey.
   private authHeader(): string {
-    return `Bearer ${signKlingJwt(this.accessKey, this.secretKey, this.nowSeconds())}`;
+    const token = this.secretKey
+      ? signKlingJwt(this.accessKey, this.secretKey, this.nowSeconds())
+      : this.accessKey;
+    return `Bearer ${token}`;
   }
 
   private async request(

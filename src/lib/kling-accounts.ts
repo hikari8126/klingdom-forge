@@ -18,20 +18,20 @@ export async function listAccountsForAdmin(actor: CurrentUser) {
 
 export async function createKlingAccount(
   actor: CurrentUser,
-  input: { label: string; accessKey: string; secretKey: string; maxConcurrent?: number },
+  input: { label: string; accessKey: string; secretKey?: string; maxConcurrent?: number },
 ) {
   assertSuperAdmin(actor);
   const key = getEncKey();
   const label = input.label.trim();
   if (!label) throw new Error("Label is required");
-  if (!input.accessKey.trim() || !input.secretKey.trim()) {
-    throw new Error("Access key and secret key are required");
-  }
+  // New API uses a single API Key (no secret); legacy uses access + secret.
+  if (!input.accessKey.trim()) throw new Error("API key / access key is required");
+  const secret = input.secretKey?.trim();
   return db.klingAccount.create({
     data: {
       label,
       accessKeyEnc: encryptSecret(input.accessKey.trim(), key),
-      secretKeyEnc: encryptSecret(input.secretKey.trim(), key),
+      secretKeyEnc: secret ? encryptSecret(secret, key) : null,
       maxConcurrent: input.maxConcurrent && input.maxConcurrent > 0 ? input.maxConcurrent : 5,
     },
     select: { id: true, label: true },
@@ -52,6 +52,6 @@ export async function listEnabledAccountsDecrypted() {
     label: r.label,
     maxConcurrent: r.maxConcurrent,
     accessKey: decryptSecret(r.accessKeyEnc, key),
-    secretKey: decryptSecret(r.secretKeyEnc, key),
+    secretKey: r.secretKeyEnc ? decryptSecret(r.secretKeyEnc, key) : undefined,
   }));
 }

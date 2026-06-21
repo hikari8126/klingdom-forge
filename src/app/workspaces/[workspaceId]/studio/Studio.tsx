@@ -37,7 +37,14 @@ type Props = {
   cells: CellView[];
 };
 
-const MODELS = ["kling-v2", "kling-v1.6", "kling-v1.5", "kling-v1"];
+// model_name values per Kling docs (api-singapore). Add 3.0 Omni/Turbo when confirmed.
+const MODELS: { value: string; label: string }[] = [
+  { value: "kling-v3", label: "Kling 3.0" },
+  { value: "kling-v2-6", label: "Kling 2.6" },
+  { value: "kling-v2-5-turbo", label: "Kling 2.5 Turbo" },
+  { value: "kling-v2-1", label: "Kling 2.1" },
+  { value: "kling-v1-6", label: "Kling 1.6" },
+];
 const ST: Record<JobStatus, { t: string; c: string }> = {
   draft: { t: "○ Nháp", c: "text-muted" },
   queued: { t: "○ Trong hàng đợi", c: "text-muted" },
@@ -353,7 +360,7 @@ function Cell({
           <div className="flex flex-wrap gap-2.5">
             <Field label="Model">
               <select defaultValue={cell.modelName} onChange={(e) => onField({ modelName: e.target.value })} className="kf-select">
-                {MODELS.map((m) => <option key={m}>{m}</option>)}
+                {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </Field>
             <Field label="Độ dài">

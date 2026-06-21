@@ -34,7 +34,7 @@ export async function createCell(actor: CurrentUser, projectId: string, startAss
   await assertCanEdit(actor, projectId);
   const imagePath = await assetPath(startAssetId);
   if (!imagePath) throw new Error("Ảnh không tồn tại");
-  const params: CellParams = { startAssetId, imagePath, modelName: "kling-v2", mode: "std", duration: "5" };
+  const params: CellParams = { startAssetId, imagePath, modelName: "kling-v2-6", mode: "std", duration: "5" };
   return db.job.create({
     data: { projectId, createdById: actor.id, type: "image2video", status: "draft", params: params as object },
   });
