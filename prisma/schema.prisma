@@ -86,7 +86,7 @@ model KlingAccount {
   id           String   @id @default(cuid())
   label        String
   accessKeyEnc String
-  secretKeyEnc String
+  secretKeyEnc String?
   maxConcurrent Int     @default(5)
   enabled      Boolean  @default(true)
   notes        String?
