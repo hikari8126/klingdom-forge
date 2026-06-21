@@ -1,4 +1,4 @@
-import { createKlingClient, classifyKlingError, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
+import { createKlingClient, classifyKlingError, KlingError, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
 import { fileToBase64 } from "@/lib/uploads";
 import { pickAccount, type AccountLoad } from "@/lib/queue-policy";
 import { listEnabledAccountsDecrypted, setAccountEnabled } from "@/lib/kling-accounts";
@@ -87,14 +87,16 @@ export async function dispatchOnce(): Promise<boolean> {
     await attachAccountAndTask(jobId, account.id, task.taskId);
     return true;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const baseMsg = e instanceof Error ? e.message : String(e);
+    const code = e instanceof KlingError && typeof e.code === "number" ? e.code : undefined;
+    const msg = code !== undefined ? `${baseMsg} [Kling ${code}]` : baseMsg;
     const cls = classifyKlingError(e);
     if (cls === "account") {
-      // bad/expired key or account out of credit → take the account offline, requeue for another
+      // bad/expired key or abnormal account → take the account offline, requeue for another
       await setAccountEnabled(SYSTEM_ACTOR, account.id, false);
       await requeueJob(jobId, `Khoá/Account "${account.label}" lỗi: ${msg}`);
     } else if (cls === "fatal") {
-      // won't succeed on retry (bad params, content policy, no model access, …) → fail loudly
+      // won't succeed on retry (out of balance, bad params, content policy, …) → fail loudly
       await markFailed(jobId, msg);
     } else {
       // transient → requeue with a cap so it can't loop forever
