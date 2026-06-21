@@ -38,6 +38,7 @@ model Workspace {
   dailyQuota  Int?
   createdById String
   createdBy   User              @relation("WorkspaceCreatedBy", fields: [createdById], references: [id])
+  klingApiKeyEnc String?
   createdAt   DateTime          @default(now())
   members     WorkspaceMember[]
   projects    Project[]

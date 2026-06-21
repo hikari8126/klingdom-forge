@@ -7,6 +7,7 @@ import {
   type Membership,
 } from "@/lib/access";
 import type { WorkspaceRole } from "@prisma/client";
+import { encryptSecret, decryptSecret, getEncKey } from "@/lib/crypto";
 
 /** Thrown when an actor lacks permission for an operation. */
 export class ForbiddenError extends Error {
@@ -92,4 +93,37 @@ export async function removeMember(
   const membership = await membershipFor(workspaceId, actor.id);
   if (!canManageWorkspace(actor.role, membership)) throw new ForbiddenError();
   await db.workspaceMember.deleteMany({ where: { workspaceId, userId } });
+}
+
+/** Save (or replace) the workspace-level Kling API key. Manager or super_admin only. */
+export async function saveWorkspaceKlingKey(
+  actor: CurrentUser,
+  workspaceId: string,
+  apiKey: string,
+) {
+  const membership = await membershipFor(workspaceId, actor.id);
+  if (!canManageWorkspace(actor.role, membership)) throw new ForbiddenError();
+  const clean = apiKey.trim();
+  if (!clean) throw new Error("API key không được để trống");
+  const enc = encryptSecret(clean, getEncKey());
+  await db.workspace.update({ where: { id: workspaceId }, data: { klingApiKeyEnc: enc } });
+}
+
+/** Clear the workspace-level Kling API key. Manager or super_admin only. */
+export async function clearWorkspaceKlingKey(actor: CurrentUser, workspaceId: string) {
+  const membership = await membershipFor(workspaceId, actor.id);
+  if (!canManageWorkspace(actor.role, membership)) throw new ForbiddenError();
+  await db.workspace.update({ where: { id: workspaceId }, data: { klingApiKeyEnc: null } });
+}
+
+/** Worker-side: decrypted API key for a workspace, looked up via projectId. Returns null if not set. */
+export async function getWorkspaceKeyForProject(
+  projectId: string,
+): Promise<{ accessKey: string } | null> {
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    select: { workspace: { select: { klingApiKeyEnc: true } } },
+  });
+  if (!project?.workspace.klingApiKeyEnc) return null;
+  return { accessKey: decryptSecret(project.workspace.klingApiKeyEnc, getEncKey()) };
 }

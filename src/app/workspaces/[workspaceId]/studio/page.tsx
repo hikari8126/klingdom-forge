@@ -62,6 +62,7 @@ export default async function StudioPage({
       workspaceId={params.workspaceId}
       workspaceName={result.workspace.name}
       userName={userName}
+      userFullName={user.name ?? user.email}
       hasAccount={hasAccount}
       workerOnline={workerOnline}
       projects={projects.map((p) => ({ id: p.id, name: p.name }))}

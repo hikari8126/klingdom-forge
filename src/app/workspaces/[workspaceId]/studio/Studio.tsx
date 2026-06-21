@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { signOutAction } from "@/app/auth-actions";
 import type { JobStatus } from "@prisma/client";
 import {
   uploadImagesAction,
@@ -41,6 +42,7 @@ type Props = {
   workspaceId: string;
   workspaceName: string;
   userName: string;
+  userFullName: string;
   hasAccount: boolean;
   workerOnline: boolean;
   projects: { id: string; name: string }[];
@@ -97,6 +99,8 @@ export default function Studio(props: Props) {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const [activeTheme, setActiveTheme] = useState("teal");
   const [, start] = useTransition();
   const imgRef = useRef<HTMLInputElement>(null);
@@ -154,6 +158,17 @@ export default function Studio(props: Props) {
     const id = setInterval(() => router.refresh(), 4000);
     return () => clearInterval(id);
   }, [anyActive, router]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [userMenuOpen]);
 
   function switchProject(id: string) {
     router.push(`/workspaces/${props.workspaceId}/studio?p=${id}`);
@@ -238,12 +253,40 @@ export default function Studio(props: Props) {
           {props.cells.length} ô{activeCells.length > 0 && ` · ${activeCells.length} đang chạy`}
         </div>
 
-        {/* avatar */}
-        <div
-          className="grid h-[30px] w-[30px] flex-none place-items-center rounded-full text-[11px] font-bold text-[#06222c]"
-          style={{ background: "conic-gradient(from 200deg,rgb(var(--color-accent)),rgb(var(--color-ok)),rgb(var(--color-yellow)),rgb(var(--color-accent)))" }}
-        >
-          {props.userName}
+        {/* avatar + user menu */}
+        <div className="relative flex-none" ref={userMenuRef}>
+          <button
+            onClick={() => setUserMenuOpen((v) => !v)}
+            className="grid h-[30px] w-[30px] place-items-center rounded-full text-[11px] font-bold text-[#06222c] transition hover:brightness-110 focus:outline-none"
+            style={{ background: "conic-gradient(from 200deg,rgb(var(--color-accent)),rgb(var(--color-ok)),rgb(var(--color-yellow)),rgb(var(--color-accent)))" }}
+            title={props.userFullName}
+          >
+            {props.userName}
+          </button>
+
+          {userMenuOpen && (
+            <div className="absolute right-0 top-[38px] z-50 min-w-[200px] overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+              <div className="border-b border-border px-4 py-3">
+                <p className="text-xs text-muted">Đang đăng nhập</p>
+                <p className="mt-0.5 truncate text-sm font-medium text-white">{props.userFullName}</p>
+              </div>
+              <div className="p-1.5">
+                <form action={signOutAction}>
+                  <button
+                    type="submit"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-white/8 hover:text-white"
+                  >
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    Đăng xuất
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
