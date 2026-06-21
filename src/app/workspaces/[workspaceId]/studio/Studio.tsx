@@ -61,6 +61,7 @@ export default function Studio(props: Props) {
   const [over, setOver] = useState(false);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [, start] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -142,12 +143,13 @@ export default function Studio(props: Props) {
             </span>
             <div className="text-sm font-semibold">KlingDom Forge</div>
           </div>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <button onClick={() => router.push("/workspaces")} title="Đổi workspace" className="mono flex min-w-0 items-center gap-1.5 text-muted hover:text-accent-soft">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" className="flex-none"><path d="M15 18l-6-6 6-6" /></svg>
-              <span className="truncate">{props.workspaceName}</span>
-            </button>
-            <button onClick={() => router.push(`/workspaces/${props.workspaceId}`)} title="Thành viên & cài đặt" className="flex-none text-muted hover:text-accent-soft">
+          <button onClick={() => router.push("/workspaces")} title="Đổi workspace" className="mono mb-3 flex w-full min-w-0 items-center gap-1.5 text-muted hover:text-accent-soft">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" className="flex-none"><path d="M15 18l-6-6 6-6" /></svg>
+            <span className="truncate">{props.workspaceName}</span>
+          </button>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="mono text-muted">Projects</h2>
+            <button onClick={() => setSettingsOpen(true)} title="Cài đặt" className="grid h-7 w-7 place-items-center rounded-lg border border-border text-muted transition hover:border-accent hover:text-accent-soft">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3" /><path d="M19.4 13a7.8 7.8 0 000-2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 00-1.7-1l-.4-2.6H9.7l-.4 2.6a7.6 7.6 0 00-1.7 1l-2.3-1-2 3.4 2 1.5a7.8 7.8 0 000 2l-2 1.5 2 3.4 2.3-1c.5.4 1.1.7 1.7 1l.4 2.6h4.6l.4-2.6c.6-.3 1.2-.6 1.7-1l2.3 1 2-3.4z" /></svg>
             </button>
           </div>
@@ -211,7 +213,7 @@ export default function Studio(props: Props) {
         </div>
 
         <div className="border-t border-border p-3">
-          <button onClick={newProject} className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent/40 bg-accent/10 py-3 text-sm font-semibold text-accent-soft hover:bg-accent/20">
+          <button onClick={newProject} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-accent-soft to-accent py-3 text-sm font-semibold text-[#04212c] shadow-glow-accent transition hover:brightness-110">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M12 5v14M5 12h14" /></svg>
             New Project
           </button>
@@ -235,7 +237,7 @@ export default function Studio(props: Props) {
               </button>
               <button
                 onClick={() => start(() => generateAllAction(props.workspaceId, active.id))}
-                className="rounded-full bg-ok px-4 py-2 text-sm font-semibold text-[#04241a] hover:brightness-110"
+                className="rounded-full bg-gradient-to-b from-[#7fe3a8] to-ok px-4 py-2 text-sm font-semibold text-[#04241a] shadow-[0_6px_20px_-6px_rgba(95,208,142,.6)] hover:brightness-110"
               >
                 ▶ Generate tất cả
               </button>
@@ -278,6 +280,40 @@ export default function Studio(props: Props) {
           </div>
         </div>
       </main>
+
+      {settingsOpen && (
+        <div onClick={() => setSettingsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div onClick={(e) => e.stopPropagation()} className="w-[440px] max-w-[92vw] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h3 className="font-semibold">Cài đặt</h3>
+              <button onClick={() => setSettingsOpen(false)} className="rounded-lg px-2 py-1 text-muted hover:bg-white/10 hover:text-white">✕</button>
+            </div>
+            <div className="px-5 py-4">
+              <div className="flex items-center justify-between border-b border-border py-3">
+                <div>
+                  <div className="text-sm font-medium">Hiển thị ảnh nguồn</div>
+                  <div className="text-xs text-muted">Dạng lưới thu nhỏ hoặc danh sách</div>
+                </div>
+                <div className="flex rounded-lg border border-border bg-surface-2 p-0.5">
+                  <button onClick={() => view !== "grid" && toggleView()} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${view === "grid" ? "bg-accent text-[#04212c]" : "text-muted"}`}>Lưới</button>
+                  <button onClick={() => view !== "list" && toggleView()} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${view === "list" ? "bg-accent text-[#04212c]" : "text-muted"}`}>List</button>
+                </div>
+              </div>
+              <button
+                onClick={() => router.push(`/workspaces/${props.workspaceId}`)}
+                className="flex w-full items-center justify-between border-b border-border py-3 text-left hover:text-accent-soft"
+              >
+                <div>
+                  <div className="text-sm font-medium">Thành viên & cài đặt workspace</div>
+                  <div className="text-xs text-muted">Thêm/xoá thành viên, phân quyền</div>
+                </div>
+                <span className="text-muted">→</span>
+              </button>
+              <p className="pt-4 text-center text-xs italic text-muted">Đổi màu theme & tuỳ chọn khác — sắp có.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -398,7 +434,7 @@ function Cell({
           <button
             onClick={onGenerate}
             disabled={busy}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold ${busy ? "bg-yellow text-[#2c2700]" : "bg-ok text-[#04241a] hover:brightness-110"}`}
+            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
           >
             {cell.status === "processing" || cell.status === "submitted" || cell.status === "queued"
               ? "Đang chạy…"

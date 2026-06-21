@@ -36,7 +36,7 @@ export function Button({
   const base = "rounded-xl px-4 py-2 text-sm font-medium transition";
   const styles =
     variant === "primary"
-      ? "bg-accent text-white shadow-glow-accent hover:bg-accent-hover"
+      ? "bg-gradient-to-b from-accent-soft to-accent text-white shadow-glow-accent hover:brightness-110"
       : "glass-input text-white hover:bg-white/10";
   return (
     <button className={`${base} ${styles} ${className}`} {...props}>
