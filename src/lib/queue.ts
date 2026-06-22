@@ -1,10 +1,23 @@
 import { db } from "@/lib/db";
 import type { CurrentUser } from "@/lib/session";
-import type { JobType, Job } from "@prisma/client";
+import type { JobType, Job, Prisma } from "@prisma/client";
 import { ForbiddenError } from "@/lib/workspaces";
 import { canCreateProject, type Membership } from "@/lib/access";
+import {
+  clampOutputSlot,
+  ensureOutputSlotIndex,
+  firstEmptyOutputSlot,
+  normalizeOutputSlots,
+  normalizeSlotErrors,
+  normalizeSlotStatuses,
+  type OutputSlotStatus,
+} from "@/lib/output-slots";
 
 const MAX_IN_FLIGHT_PER_USER = Number(process.env.MAX_IN_FLIGHT_PER_USER ?? 10);
+
+function jsonParams(value: unknown): Prisma.InputJsonObject {
+  return value as Prisma.InputJsonObject;
+}
 
 async function membershipFor(workspaceId: string, userId: string): Promise<Membership> {
   return db.workspaceMember.findUnique({
@@ -38,7 +51,7 @@ export async function enqueueJobs(
         batchId: batch.id,
         createdById: actor.id,
         type,
-        params: params as object,
+        params: jsonParams(params),
       })),
     });
     return batch;
@@ -94,11 +107,13 @@ export async function claimNextQueuedJob(): Promise<string | null> {
 
 export async function attachAccountAndTask(jobId: string, klingAccountId: string, klingTaskId: string) {
   await db.job.update({ where: { id: jobId }, data: { klingAccountId, klingTaskId } });
+  await updateParentSlotFromRun(jobId, "submitted");
 }
 
 /** Attach only the Kling task ID (workspace-keyed jobs have no klingAccountId). */
 export async function attachTaskOnly(jobId: string, klingTaskId: string) {
   await db.job.update({ where: { id: jobId }, data: { klingTaskId } });
+  await updateParentSlotFromRun(jobId, "submitted");
 }
 
 /** Revert a claimed job to queued (e.g. submit failed / account unavailable). */
@@ -107,6 +122,7 @@ export async function requeueJob(jobId: string, error?: string) {
     where: { id: jobId },
     data: { status: "queued", klingAccountId: null, klingTaskId: null, error: error ?? null, attempts: { increment: 1 } },
   });
+  await updateParentSlotFromRun(jobId, "queued", undefined, error);
 }
 
 export async function getJob(jobId: string): Promise<Job | null> {
@@ -120,37 +136,118 @@ export async function listActiveJobs(): Promise<Job[]> {
 
 export async function markProcessing(jobId: string) {
   await db.job.update({ where: { id: jobId }, data: { status: "processing" } });
+  await updateParentSlotFromRun(jobId, "processing");
 }
 
 export async function markSucceeded(jobId: string, resultUrl: string) {
   const job = await db.job.findUnique({ where: { id: jobId } });
   if (!job) return;
 
+  if (job.parentJobId) {
+    await db.job.update({
+      where: { id: jobId },
+      data: { status: "succeeded", resultUrl, error: null },
+    });
+    await updateParentSlotFromRun(jobId, "succeeded", resultUrl);
+    return;
+  }
+
   const params = { ...(job.params as Record<string, unknown>) };
-  const slots: (string | null)[] = Array.isArray(params.resultUrls)
-    ? [...(params.resultUrls as (string | null)[])]
-    : [null, null, null];
-  while (slots.length < 3) slots.push(null);
+  const slots = normalizeOutputSlots(
+    Array.isArray(params.resultUrls) ? (params.resultUrls as (string | null)[]) : undefined,
+  );
 
   const targetSlot = typeof params.targetSlot === "number"
-    ? Math.max(0, Math.min(2, params.targetSlot))
-    : Math.max(0, slots.findIndex((s) => !s));
+    ? clampOutputSlot(params.targetSlot)
+    : firstEmptyOutputSlot(slots);
+  const statuses = normalizeSlotStatuses(
+    Array.isArray(params.slotStatuses) ? (params.slotStatuses as string[]) : undefined,
+    slots,
+  );
+  const errors = normalizeSlotErrors(
+    Array.isArray(params.slotErrors) ? (params.slotErrors as (string | null)[]) : undefined,
+  );
+  ensureOutputSlotIndex(slots, statuses, errors, targetSlot);
 
   slots[targetSlot] = resultUrl;
-  params.resultUrls = slots.slice(0, 3);
+  statuses[targetSlot] = "succeeded";
+  errors[targetSlot] = null;
+  params.resultUrls = slots;
+  params.slotStatuses = statuses;
+  params.slotErrors = errors;
   delete params.targetSlot;
 
   await db.job.update({
     where: { id: jobId },
-    data: { status: "succeeded", resultUrl, error: null, params: params as object },
+    data: { status: "succeeded", resultUrl, error: null, params: jsonParams(params) },
   });
 }
 
 export async function markFailed(jobId: string, error: string) {
   await db.job.update({ where: { id: jobId }, data: { status: "failed", error } });
+  await updateParentSlotFromRun(jobId, "failed", undefined, error);
 }
 
 /** All jobs in a project, newest first (for the project detail view). */
 export async function listJobsForProject(projectId: string): Promise<Job[]> {
-  return db.job.findMany({ where: { projectId }, orderBy: { createdAt: "desc" } });
+  return db.job.findMany({ where: { projectId, parentJobId: null }, orderBy: { createdAt: "desc" } });
+}
+
+async function updateParentSlotFromRun(
+  slotRunId: string,
+  status: OutputSlotStatus,
+  resultUrl?: string,
+  error?: string,
+) {
+  const slotRun = await db.job.findUnique({
+    where: { id: slotRunId },
+    select: { parentJobId: true, slotIndex: true },
+  });
+  if (!slotRun?.parentJobId || slotRun.slotIndex === null) return;
+
+  const parent = await db.job.findUnique({
+    where: { id: slotRun.parentJobId },
+    select: { id: true, params: true, resultUrl: true },
+  });
+  if (!parent) return;
+
+  const params = { ...(parent.params as Record<string, unknown>) };
+  const slots = normalizeOutputSlots(
+    Array.isArray(params.resultUrls) ? (params.resultUrls as (string | null)[]) : undefined,
+    parent.resultUrl,
+  );
+  const statuses = normalizeSlotStatuses(
+    Array.isArray(params.slotStatuses) ? (params.slotStatuses as string[]) : undefined,
+    slots,
+  );
+  const errors = normalizeSlotErrors(
+    Array.isArray(params.slotErrors) ? (params.slotErrors as (string | null)[]) : undefined,
+  );
+  const slot = clampOutputSlot(slotRun.slotIndex);
+  ensureOutputSlotIndex(slots, statuses, errors, slot);
+
+  statuses[slot] = status;
+  if (status === "succeeded" && resultUrl) {
+    slots[slot] = resultUrl;
+    errors[slot] = null;
+  } else if (status === "failed") {
+    errors[slot] = error ?? "Kling task failed";
+  } else if (error) {
+    errors[slot] = error;
+  } else if (status === "queued" || status === "submitted" || status === "processing") {
+    errors[slot] = null;
+  }
+
+  params.resultUrls = slots;
+  params.slotStatuses = statuses;
+  params.slotErrors = errors;
+
+  await db.job.update({
+    where: { id: parent.id },
+    data: {
+      params: jsonParams(params),
+      resultUrl: slots.find(Boolean) ?? null,
+      error: errors.find(Boolean) ?? null,
+    },
+  });
 }

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { auth } from "@/auth";
 import { requireUser } from "@/lib/session";
 import { getWorkspaceForUser } from "@/lib/workspaces";
 import { listAssets } from "@/lib/assets";
@@ -7,6 +8,9 @@ import { isWorkerOnline } from "@/lib/worker-status";
 import { listCells, type CellParams } from "@/lib/cells";
 import { listBatches } from "@/lib/batches";
 import { listLibraryVideos } from "@/lib/library-videos";
+import { normalizeOutputSlots, normalizeSlotErrors, normalizeSlotStatuses } from "@/lib/output-slots";
+import { listUsersForRoleSettings, listWorkspaceApiSettings } from "@/lib/app-settings";
+import { sanitizeKlingAvatarSettings, sanitizeKlingImageSettings, sanitizeKlingMotionSettings } from "@/lib/kling-options";
 import Studio, { type CellView } from "./Studio";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +23,9 @@ export default async function StudioPage({
   searchParams: { p?: string; b?: string };
 }) {
   const user = await requireUser();
+  const session = await auth();
+  const googleDriveAccessToken =
+    (session as unknown as { googleAccessToken?: string } | null)?.googleAccessToken ?? null;
   const result = await getWorkspaceForUser(user, params.workspaceId);
   if (!result) notFound();
   const projects = result.workspace.projects;
@@ -54,6 +61,19 @@ export default async function StudioPage({
     if (activeBatchId) {
       cells = (await listCells(user, activeProject.id, activeBatchId)).map((j) => {
         const pr = j.params as CellParams;
+        const motionSettings = j.type === "motioncontrol" ? sanitizeKlingMotionSettings(pr) : null;
+        const avatarSettings = j.type === "avatar" ? sanitizeKlingAvatarSettings(pr) : null;
+        const imageSettings =
+          j.type === "image2video"
+            ? sanitizeKlingImageSettings(pr)
+            : {
+                modelName: motionSettings?.modelName ?? pr.modelName ?? "kling-v2-6",
+                mode: avatarSettings?.mode ?? motionSettings?.mode ?? pr.mode ?? "std",
+                duration: pr.duration ?? "5",
+                videoRatio: pr.videoRatio ?? "9:16",
+                nativeAudio: pr.nativeAudio ?? false,
+                multiShot: pr.multiShot ?? false,
+              };
         return {
           id: j.id,
           status: j.status,
@@ -61,9 +81,13 @@ export default async function StudioPage({
           resultUrl: j.resultUrl,
           resultUrls: (() => {
             const raw = Array.isArray(pr.resultUrls) ? (pr.resultUrls as (string | null)[]) : null;
-            if (raw && raw.length > 0) return ([...raw, null, null, null].slice(0, 3) as (string | null)[]);
-            return [j.resultUrl ?? null, null, null] as (string | null)[];
+            return normalizeOutputSlots(raw ?? undefined, j.resultUrl);
           })(),
+          slotStatuses: normalizeSlotStatuses(
+            Array.isArray(pr.slotStatuses) ? pr.slotStatuses : undefined,
+            normalizeOutputSlots(Array.isArray(pr.resultUrls) ? (pr.resultUrls as (string | null)[]) : undefined, j.resultUrl),
+          ),
+          slotErrors: normalizeSlotErrors(Array.isArray(pr.slotErrors) ? pr.slotErrors : undefined),
           targetSlot: typeof pr.targetSlot === "number" ? pr.targetSlot : null,
           error: j.error,
           startAssetId: pr.startAssetId ?? "",
@@ -71,11 +95,17 @@ export default async function StudioPage({
           videoAssetId: pr.videoAssetId ?? null,
           libraryVideoId: pr.libraryVideoId ?? null,
           prompt: pr.prompt ?? "",
-          modelName: pr.modelName,
-          mode: pr.mode,
-          duration: pr.duration,
-          characterOrientation: pr.characterOrientation ?? "image",
-          keepOriginalSound: pr.keepOriginalSound ?? "yes",
+          modelName: imageSettings.modelName,
+          mode: imageSettings.mode,
+          duration: imageSettings.duration,
+          videoRatio: imageSettings.videoRatio,
+          nativeAudio: imageSettings.nativeAudio,
+          multiShot: imageSettings.multiShot,
+          characterOrientation: motionSettings?.characterOrientation ?? pr.characterOrientation ?? "image",
+          keepOriginalSound: motionSettings?.keepOriginalSound ?? pr.keepOriginalSound ?? "yes",
+          avatarAudioAssetId: pr.avatarAudioAssetId ?? null,
+          avatarAudioId: pr.avatarAudioId ?? "",
+          avatarSoundUrl: pr.avatarSoundUrl ?? "",
           avatarId: pr.avatarId ?? "",
           avatarType: (pr.avatarType ?? "2d") as "2d" | "3d",
           voiceId: pr.voiceId ?? "",
@@ -94,9 +124,33 @@ export default async function StudioPage({
     return rawName.slice(0, 2).toUpperCase();
   })();
 
-  const hasAccount = (await countEnabledAccounts()) > 0;
+  const workspaceHasKlingKey = Boolean(result.workspace.klingApiKeyEnc);
+  const hasAccount = workspaceHasKlingKey || (await countEnabledAccounts()) > 0;
   const workerOnline = await isWorkerOnline();
-  const libraryVideos = (await listLibraryVideos()).map((v) => ({ id: v.id, name: v.name, filename: v.filename }));
+  const libraryVideos = (await listLibraryVideos()).map((v) => ({
+    id: v.id,
+    name: v.name,
+    filename: v.filename,
+    createdAt: v.createdAt.toISOString(),
+  }));
+  const appSettings =
+    user.role === "super_admin"
+      ? {
+          users: (await listUsersForRoleSettings(user)).map((u) => ({
+            id: u.id,
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            createdAt: u.createdAt.toISOString(),
+          })),
+          workspaces: (await listWorkspaceApiSettings(user)).map((w) => ({
+            id: w.id,
+            name: w.name,
+            hasKlingKey: w.hasKlingKey,
+            createdAt: w.createdAt.toISOString(),
+          })),
+        }
+      : null;
 
   return (
     <Studio
@@ -106,6 +160,7 @@ export default async function StudioPage({
       userFullName={user.name ?? user.email}
       userRole={user.role}
       hasAccount={hasAccount}
+      workspaceHasKlingKey={workspaceHasKlingKey}
       workerOnline={workerOnline}
       projects={projects.map((p) => ({ id: p.id, name: p.name }))}
       activeProjectId={activeProject?.id ?? null}
@@ -114,6 +169,10 @@ export default async function StudioPage({
       assets={assets}
       cells={cells}
       libraryVideos={libraryVideos}
+      appSettings={appSettings}
+      googleDriveAccessToken={googleDriveAccessToken}
+      googleDrivePickerApiKey={process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY ?? null}
+      googleDriveAppId={process.env.NEXT_PUBLIC_GOOGLE_APP_ID ?? null}
     />
   );
 }

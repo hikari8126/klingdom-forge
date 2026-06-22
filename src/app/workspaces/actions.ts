@@ -49,6 +49,7 @@ export async function saveWorkspaceKlingKeyAction(formData: FormData) {
   const apiKey = String(formData.get("apiKey") ?? "");
   await saveWorkspaceKlingKey(actor, workspaceId, apiKey);
   revalidatePath(`/workspaces/${workspaceId}`);
+  revalidatePath(`/workspaces/${workspaceId}/studio`);
 }
 
 export async function clearWorkspaceKlingKeyAction(formData: FormData) {
@@ -56,4 +57,5 @@ export async function clearWorkspaceKlingKeyAction(formData: FormData) {
   const workspaceId = String(formData.get("workspaceId") ?? "");
   await clearWorkspaceKlingKey(actor, workspaceId);
   revalidatePath(`/workspaces/${workspaceId}`);
+  revalidatePath(`/workspaces/${workspaceId}/studio`);
 }

@@ -19,11 +19,13 @@ import {
   updateAvatarCell,
   convertCellType,
 } from "@/lib/cells";
-import { assertVideoSize } from "@/lib/uploads";
+import { assertAudioSize, assertVideoSize } from "@/lib/uploads";
 import { assetPath } from "@/lib/assets";
 import { trimVideo } from "@/lib/video";
+import { getGoogleDriveAccessToken, importGoogleDriveAssets } from "@/lib/google-drive";
 import path from "node:path";
 import { db } from "@/lib/db";
+import type { KlingImageMode, KlingMotionMode, KlingVideoRatio } from "@/lib/kling-options";
 
 function rv(workspaceId: string) {
   revalidatePath(`/workspaces/${workspaceId}/studio`);
@@ -94,6 +96,30 @@ export async function uploadVideosAction(workspaceId: string, projectId: string,
   rv(workspaceId);
 }
 
+export async function uploadAudioAction(workspaceId: string, projectId: string, formData: FormData, batchId?: string) {
+  const actor = await requireUser();
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File);
+  for (const f of files) {
+    const buf = Buffer.from(await f.arrayBuffer());
+    assertAudioSize(buf, f.name);
+    await createAsset(actor, projectId, f.name, buf, batchId);
+  }
+  rv(workspaceId);
+}
+
+export async function importGoogleDriveAction(
+  workspaceId: string,
+  projectId: string,
+  driveInput: string,
+  batchId?: string,
+) {
+  const actor = await requireUser();
+  const accessToken = await getGoogleDriveAccessToken();
+  const result = await importGoogleDriveAssets(actor, projectId, batchId, accessToken, driveInput);
+  rv(workspaceId);
+  return result;
+}
+
 // ── Cell creation actions ─────────────────────────────────────────────────────
 
 export async function createCellAction(workspaceId: string, projectId: string, startAssetId: string, batchId?: string) {
@@ -128,8 +154,11 @@ export async function updateCellAction(
   patch: {
     prompt?: string;
     modelName?: string;
-    mode?: "std" | "pro" | "4k";
+    mode?: KlingImageMode;
     duration?: string;
+    videoRatio?: KlingVideoRatio;
+    nativeAudio?: boolean;
+    multiShot?: boolean;
     endAssetId?: string | null;
   },
 ) {
@@ -168,7 +197,7 @@ export async function updateMotionCellAction(
   patch: {
     prompt?: string;
     modelName?: string;
-    mode?: "std" | "pro";
+    mode?: KlingMotionMode;
     characterOrientation?: "image" | "video";
     keepOriginalSound?: "yes" | "no";
     imageAssetId?: string | null;
@@ -187,12 +216,17 @@ export async function updateAvatarCellAction(
   patch: {
     avatarId?: string;
     avatarType?: "2d" | "3d";
+    imageAssetId?: string | null;
+    avatarAudioAssetId?: string | null;
+    avatarAudioId?: string;
+    avatarSoundUrl?: string;
     voiceId?: string;
     voiceLanguage?: string;
     voiceSpeed?: number;
     avatarText?: string;
     prompt?: string;
     modelName?: string;
+    mode?: KlingMotionMode;
   },
 ) {
   const actor = await requireUser();
@@ -246,7 +280,7 @@ export async function updateMultipleCellsModeAction(
   const actor = await requireUser();
   for (const { id, type, mode } of updates) {
     if (type === "image2video") {
-      await updateCell(actor, id, { mode: mode as "std" | "pro" | "4k" });
+      await updateCell(actor, id, { mode: mode as KlingImageMode });
     } else if (type === "motioncontrol") {
       const mcMode = mode === "4k" ? "pro" : (mode as "std" | "pro");
       await updateMotionCell(actor, id, { mode: mcMode });

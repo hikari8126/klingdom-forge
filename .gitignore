@@ -11,7 +11,8 @@ next-env.d.ts
 *.tsbuildinfo
 
 /uploads
+/cmq*/
 
 # Local docker-compose port-remapping (machine-specific, not for the repo)
 docker-compose.override.yml
-library/
+/library/

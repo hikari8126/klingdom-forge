@@ -3,10 +3,28 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { signOutAction } from "@/app/auth-actions";
+import { isActiveOutputStatus, type OutputSlotStatus } from "@/lib/output-slots";
+import {
+  KLING_I2V_MODELS,
+  KLING_IMAGE_MODE_OPTIONS,
+  KLING_AVATAR_MODE_OPTIONS,
+  KLING_MOTION_MODELS,
+  KLING_MOTION_MODE_OPTIONS,
+  KLING_MOTION_ORIENTATION_OPTIONS,
+  KLING_SOUND_MODE_OPTIONS,
+  KLING_VIDEO_RATIO_OPTIONS,
+  getKlingImageCapabilities,
+  canUseKlingNativeAudio,
+  type KlingImageMode,
+  type KlingMotionMode,
+  type KlingVideoRatio,
+} from "@/lib/kling-options";
 import type { JobStatus } from "@prisma/client";
 import {
   uploadImagesAction,
+  uploadAudioAction,
   uploadVideosAction,
+  importGoogleDriveAction,
   createProjectAction,
   renameProjectAction,
   deleteProjectAction,
@@ -30,6 +48,14 @@ import {
   updateMultipleCellsModeAction,
   trimVideoAction,
 } from "./actions";
+import {
+  clearWorkspaceKlingKeyFromSettingsAction,
+  deleteLibraryVideoFromSettingsAction,
+  deleteLibraryVideosFromSettingsAction,
+  saveWorkspaceKlingKeyFromSettingsAction,
+  setUserRoleAction,
+  uploadLibraryVideoFromSettingsAction,
+} from "./settings-actions";
 
 export type CellView = {
   id: string;
@@ -45,8 +71,14 @@ export type CellView = {
   modelName: string;
   mode: string;
   duration: string;
+  videoRatio: KlingVideoRatio;
+  nativeAudio: boolean;
+  multiShot: boolean;
   characterOrientation: "image" | "video";
   keepOriginalSound: "yes" | "no";
+  avatarAudioAssetId: string | null;
+  avatarAudioId: string;
+  avatarSoundUrl: string;
   avatarId: string;
   avatarType: "2d" | "3d";
   voiceId: string;
@@ -54,12 +86,25 @@ export type CellView = {
   voiceSpeed: number;
   avatarText: string;
   resultUrls: (string | null)[];
+  slotStatuses: OutputSlotStatus[];
+  slotErrors: (string | null)[];
   targetSlot: number | null;
 };
 
 type AssetView = { id: string; filename: string; mimeType: string | null };
 
 type BatchView = { id: string; name: string; jobCount: number; createdAt: string };
+
+type PreviewVideo = { id: string; url: string; label: string };
+
+type AppRole = "super_admin" | "manager" | "member";
+
+type LibraryVideoView = { id: string; name: string; filename: string; createdAt: string };
+
+type AppSettingsData = {
+  users: { id: string; email: string; name: string | null; role: AppRole; createdAt: string }[];
+  workspaces: { id: string; name: string; hasKlingKey: boolean; createdAt: string }[];
+} | null;
 
 type Props = {
   workspaceId: string;
@@ -68,6 +113,7 @@ type Props = {
   userFullName: string;
   userRole: string;
   hasAccount: boolean;
+  workspaceHasKlingKey: boolean;
   workerOnline: boolean;
   projects: { id: string; name: string }[];
   activeProjectId: string | null;
@@ -75,42 +121,12 @@ type Props = {
   activeBatches: BatchView[];
   assets: AssetView[];
   cells: CellView[];
-  libraryVideos: { id: string; name: string; filename: string }[];
+  libraryVideos: LibraryVideoView[];
+  appSettings: AppSettingsData;
+  googleDriveAccessToken: string | null;
+  googleDrivePickerApiKey: string | null;
+  googleDriveAppId: string | null;
 };
-
-const MODELS_I2V: { value: string; label: string }[] = [
-  { value: "kling-v3", label: "Kling 3.0" },
-  { value: "kling-v2-6", label: "Kling 2.6" },
-  { value: "kling-v2-5-turbo", label: "Kling 2.5 Turbo" },
-  { value: "kling-v2-1", label: "Kling 2.1" },
-  { value: "kling-v1-6", label: "Kling 1.6" },
-];
-const MODELS_MC: { value: string; label: string }[] = [
-  { value: "kling-v3", label: "Kling 3.0" },
-  { value: "kling-v2-6", label: "Kling 2.6" },
-];
-const DURATIONS = ["3", "5", "7", "10", "15"];
-
-const VOICE_LANGUAGES = [
-  { value: "zh", label: "Chinese (ZH)" },
-  { value: "en", label: "English (EN)" },
-  { value: "ja", label: "Japanese (JA)" },
-  { value: "ko", label: "Korean (KO)" },
-  { value: "es", label: "Spanish (ES)" },
-  { value: "fr", label: "French (FR)" },
-  { value: "de", label: "German (DE)" },
-  { value: "ar", label: "Arabic (AR)" },
-  { value: "pt", label: "Portuguese (PT)" },
-];
-
-const VOICE_PRESETS = [
-  { value: "zhishiting_general", label: "Zhishiting (ZH, F)" },
-  { value: "zhiyu_general", label: "Zhiyu (ZH, M)" },
-  { value: "en-US-AriaNeural", label: "Aria (EN, F)" },
-  { value: "en-US-GuyNeural", label: "Guy (EN, M)" },
-  { value: "ja-JP-NanamiNeural", label: "Nanami (JA, F)" },
-  { value: "ko-KR-SunHiNeural", label: "SunHi (KO, F)" },
-];
 
 const ST: Record<JobStatus, { t: string; c: string }> = {
   draft: { t: "○ Nháp — chưa gửi", c: "text-muted" },
@@ -131,6 +147,50 @@ function genLabel(s: JobStatus): string {
     case "failed": return "↻ Thử lại";
     default: return "▶ Generate";
   }
+}
+
+function slotLight(status: OutputSlotStatus, hasUrl: boolean) {
+  if (status === "failed") return { dot: "bg-bad", text: "text-bad", border: "border-bad/40", bg: "bg-bad/5", label: "Lỗi" };
+  if (status === "queued") return { dot: "bg-yellow", text: "text-yellow", border: "border-yellow/45", bg: "bg-yellow/10", label: "Queued" };
+  if (status === "submitted") return { dot: "bg-yellow", text: "text-yellow", border: "border-yellow/45", bg: "bg-yellow/10", label: "Submitted" };
+  if (status === "processing") return { dot: "bg-yellow", text: "text-yellow", border: "border-yellow/45", bg: "bg-yellow/10", label: "Processing" };
+  if (status === "succeeded" || hasUrl) return { dot: "bg-ok", text: "text-ok", border: "border-ok/30", bg: "bg-ok/5", label: "Done" };
+  return { dot: "bg-muted", text: "text-muted", border: "border-border", bg: "bg-transparent", label: "Idle" };
+}
+
+function activeSlotText(cell: CellView) {
+  const active = cell.slotStatuses.filter(isActiveOutputStatus);
+  if (active.length === 0) return "▶ Generate";
+  const processing = active.filter((s) => s === "processing").length;
+  const submitted = active.filter((s) => s === "submitted").length;
+  const queued = active.filter((s) => s === "queued").length;
+  return `+ Generate · ${processing ? `${processing} processing` : submitted ? `${submitted} submitted` : `${queued} queued`}`;
+}
+
+function hasActiveSlots(cell: CellView) {
+  return cell.slotStatuses.some(isActiveOutputStatus);
+}
+
+function outputCountText(cell: CellView): string {
+  const done = cell.resultUrls.filter(Boolean).length;
+  const active = cell.slotStatuses.filter(isActiveOutputStatus).length;
+  return active > 0 ? `${done} output · ${active} generating` : `${done} output`;
+}
+
+function cellStatusMeta(cell: CellView): { t: string; c: string } {
+  const active = cell.slotStatuses.filter(isActiveOutputStatus);
+  if (active.length > 0) {
+    const processing = active.filter((s) => s === "processing").length;
+    const submitted = active.filter((s) => s === "submitted").length;
+    const queued = active.filter((s) => s === "queued").length;
+    if (processing) return { t: `⟳ Kling đang tạo ${processing} slot…`, c: "text-yellow" };
+    if (submitted) return { t: `↗ Đã gửi Kling ${submitted} slot…`, c: "text-yellow" };
+    return { t: `◔ ${queued} slot trong hàng đợi`, c: "text-yellow" };
+  }
+  const failed = cell.slotStatuses.filter((s) => s === "failed").length;
+  if (failed > 0) return { t: `✕ ${failed} slot lỗi`, c: "text-bad" };
+  if (cell.resultUrls.some(Boolean)) return { t: "✓ Có output", c: "text-ok" };
+  return ST[cell.status];
 }
 
 const THEMES = [
@@ -163,6 +223,42 @@ function TypeTabs({ active, onChange }: { active: CellTypeTab; onChange: (t: Cel
   );
 }
 
+declare global {
+  interface Window {
+    gapi?: {
+      load: (name: string, opts: { callback: () => void; onerror?: () => void }) => void;
+    };
+    google?: {
+      picker: {
+        Action: { PICKED: string };
+        Response: { ACTION: string; DOCUMENTS: string };
+        Document: { ID: string };
+        Feature: { MULTISELECT_ENABLED: string };
+        DocsView: new () => any;
+        PickerBuilder: new () => any;
+      };
+    };
+  }
+}
+
+function loadGooglePickerApi(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (window.google?.picker && window.gapi) return resolve();
+    const existing = document.getElementById("google-api-js");
+    if (existing) {
+      existing.addEventListener("load", () => window.gapi?.load("picker", { callback: resolve, onerror: reject }));
+      existing.addEventListener("error", reject);
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "google-api-js";
+    script.src = "https://apis.google.com/js/api.js";
+    script.onload = () => window.gapi?.load("picker", { callback: resolve, onerror: reject });
+    script.onerror = () => reject(new Error("Không tải được Google Picker API"));
+    document.body.appendChild(script);
+  });
+}
+
 export default function Studio(props: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -170,20 +266,22 @@ export default function Studio(props: Props) {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appSettingsOpen, setAppSettingsOpen] = useState(false);
+  const [activeSettingsModule, setActiveSettingsModule] = useState<"role" | "api" | "motion">("role");
   const [activeTheme, setActiveTheme] = useState("teal");
   const [, start] = useTransition();
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [batchesSectionCollapsed, setBatchesSectionCollapsed] = useState(false);
   const [assetsSectionCollapsed, setAssetsSectionCollapsed] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewVideos, setPreviewVideos] = useState<PreviewVideo[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [confirmOverwrite, setConfirmOverwrite] = useState<{ jobId: string; label: string } | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [trimModal, setTrimModal] = useState<{ assetId: string; filename: string } | null>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
@@ -225,10 +323,19 @@ export default function Studio(props: Props) {
 
   const active = props.projects.find((p) => p.id === props.activeProjectId) ?? null;
   const shown = props.projects.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()));
-  const imageAssets = props.assets.filter((a) => !a.mimeType?.startsWith("video/"));
+  const imageAssets = props.assets.filter((a) => a.mimeType?.startsWith("image/"));
   const videoAssets = props.assets.filter((a) => a.mimeType?.startsWith("video/"));
+  const audioAssets = props.assets.filter((a) => a.mimeType?.startsWith("audio/"));
   const activeCells = props.cells.filter(
-    (c) => c.status === "queued" || c.status === "submitted" || c.status === "processing",
+    (c) =>
+      c.status === "queued" ||
+      c.status === "submitted" ||
+      c.status === "processing" ||
+      c.slotStatuses.some(isActiveOutputStatus),
+  );
+  const activeSlotCount = props.cells.reduce(
+    (sum, c) => sum + c.slotStatuses.filter(isActiveOutputStatus).length,
+    0,
   );
   const anyActive = activeCells.length > 0;
 
@@ -278,6 +385,103 @@ export default function Studio(props: Props) {
     Array.from(files).forEach((f) => fd.append("files", f));
     start(() => uploadVideosAction(props.workspaceId, props.activeProjectId!, fd, props.activeBatchId ?? undefined));
   }
+  function uploadAudio(files: FileList | null) {
+    if (!files || !files.length || !props.activeProjectId) return;
+    const fd = new FormData();
+    Array.from(files).forEach((f) => fd.append("files", f));
+    start(() => uploadAudioAction(props.workspaceId, props.activeProjectId!, fd, props.activeBatchId ?? undefined));
+  }
+  function importFromGoogleDrive() {
+    if (!props.activeProjectId || !props.activeBatchId) return;
+    if (props.googleDriveAccessToken && props.googleDrivePickerApiKey) {
+      start(async () => {
+        try {
+          await loadGooglePickerApi();
+          const picker = window.google?.picker;
+          if (!picker) throw new Error("Google Picker chưa sẵn sàng");
+
+          const view = new picker.DocsView()
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(true)
+            .setMimeTypes(
+              [
+                "application/vnd.google-apps.folder",
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "image/gif",
+                "video/mp4",
+                "video/quicktime",
+                "audio/mpeg",
+                "audio/wav",
+                "audio/mp4",
+                "audio/aac",
+              ].join(","),
+            );
+
+          let builder = new picker.PickerBuilder()
+            .addView(view)
+            .enableFeature(picker.Feature.MULTISELECT_ENABLED)
+            .setOAuthToken(props.googleDriveAccessToken!)
+            .setDeveloperKey(props.googleDrivePickerApiKey!)
+            .setTitle("Chọn ảnh/video hoặc folder từ Google Drive")
+            .setCallback((data: Record<string, unknown>) => {
+              if (data[picker.Response.ACTION] !== picker.Action.PICKED) return;
+              const docs = (data[picker.Response.DOCUMENTS] as Array<Record<string, unknown>> | undefined) ?? [];
+              const ids = docs.map((d) => String(d[picker.Document.ID] ?? "")).filter(Boolean);
+              if (ids.length === 0) return;
+              start(async () => {
+                try {
+                  let imported = 0;
+                  let found = 0;
+                  let skipped = 0;
+                  for (const id of ids) {
+                    const result = await importGoogleDriveAction(
+                      props.workspaceId,
+                      props.activeProjectId!,
+                      id,
+                      props.activeBatchId!,
+                    );
+                    imported += result.imported;
+                    found += result.totalFound;
+                    skipped += result.skipped;
+                  }
+                  alert(`Đã import ${imported}/${found} file từ Google Drive${skipped ? `, bỏ qua ${skipped}` : ""}.`);
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : "Import Google Drive thất bại");
+                }
+              });
+            });
+
+          if (props.googleDriveAppId) builder = builder.setAppId(props.googleDriveAppId);
+          builder.build().setVisible(true);
+        } catch (e) {
+          alert(e instanceof Error ? e.message : "Không mở được Google Drive Picker");
+        }
+      });
+      return;
+    }
+
+    const link = window.prompt(
+      props.googleDriveAccessToken
+        ? "Google Picker chưa cấu hình API key. Dán link Google Drive file/folder hoặc raw ID:"
+        : "Dán link Google Drive file/folder hoặc raw ID. Nếu là Drive riêng tư, hãy đăng xuất rồi đăng nhập lại để cấp quyền Drive read-only.",
+    );
+    if (!link?.trim()) return;
+    start(async () => {
+      try {
+        const result = await importGoogleDriveAction(
+          props.workspaceId,
+          props.activeProjectId!,
+          link.trim(),
+          props.activeBatchId!,
+        );
+        alert(`Đã import ${result.imported}/${result.totalFound} file từ Google Drive${result.skipped ? `, bỏ qua ${result.skipped}` : ""}.`);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "Import Google Drive thất bại");
+      }
+    });
+  }
   function handleCanvasDrop(assetId: string) {
     if (!props.activeProjectId || !props.activeBatchId) return;
     const asset = props.assets.find((a) => a.id === assetId);
@@ -289,8 +493,10 @@ export default function Studio(props: Props) {
         return;
       }
       start(() => createMotionCellAction(props.workspaceId, props.activeProjectId!, imgId, assetId, props.activeBatchId!));
-    } else {
+    } else if (asset.mimeType?.startsWith("image/")) {
       start(() => createCellAction(props.workspaceId, props.activeProjectId!, assetId, props.activeBatchId!));
+    } else if (asset.mimeType?.startsWith("audio/")) {
+      alert("Kéo audio vào ô Avatar, hoặc tạo Avatar rồi chọn audio trong cell.");
     }
   }
 
@@ -338,12 +544,9 @@ export default function Studio(props: Props) {
   const conv = (jobId: string, type: CellTypeTab) =>
     start(() => convertCellAction(props.workspaceId, jobId, type));
   function handleGenerate(cell: CellView) {
-    const nextEmpty = cell.resultUrls.findIndex((s) => !s);
-    if (nextEmpty !== -1) {
-      start(() => generateCellAction(props.workspaceId, cell.id, nextEmpty));
-    } else {
-      setConfirmOverwrite({ jobId: cell.id, label: `Output 1 của ô "${cell.prompt ? cell.prompt.slice(0, 20) + '…' : cell.id.slice(-6)}"` });
-    }
+    // Let the server choose the next available slot from the freshest DB state.
+    // This keeps the button happily clickable even when the UI hasn't refreshed yet.
+    start(() => generateCellAction(props.workspaceId, cell.id));
   }
 
   function toggleSelect(id: string) {
@@ -374,6 +577,19 @@ export default function Studio(props: Props) {
       .map((c) => ({ id: c.id, type: c.type, mode }));
     if (!updates.length) return;
     start(() => updateMultipleCellsModeAction(props.workspaceId, updates));
+  }
+
+  function openPreview(url: string, label: string) {
+    setPreviewVideos((items) => {
+      const existing = items.find((item) => item.url === url);
+      if (existing) return items;
+      return [...items, { id: `${Date.now()}-${items.length}`, url, label }];
+    });
+    setPreviewOpen(true);
+  }
+
+  function removePreview(id: string) {
+    setPreviewVideos((items) => items.filter((item) => item.id !== id));
   }
 
   return (
@@ -407,7 +623,7 @@ export default function Studio(props: Props) {
 
         <div className="mono flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-muted">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-3.5-3.5" /></svg>
-          {props.cells.length} ô{activeCells.length > 0 && ` · ${activeCells.length} đang chạy`}
+          {props.cells.length} ô{activeSlotCount > 0 && ` · ${activeSlotCount} slot đang chạy`}
         </div>
 
         <div ref={userMenuRef} className="relative">
@@ -420,10 +636,30 @@ export default function Studio(props: Props) {
             {props.userName}
           </button>
           {userMenuOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
+            <div className="absolute right-0 top-full z-50 mt-1.5 w-80 overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
               <div className="border-b border-border px-3 py-2.5">
                 <p className="truncate text-xs font-medium text-white">{props.userFullName}</p>
+                <p className="mono mt-0.5 text-[9px] text-muted">{props.userRole}</p>
               </div>
+
+              {props.userRole === "super_admin" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    setActiveSettingsModule("role");
+                    setAppSettingsOpen(true);
+                  }}
+                  className="flex w-full items-center justify-between border-b border-border px-3 py-2.5 text-left text-sm text-muted hover:bg-white/5 hover:text-accent-soft"
+                >
+                  <span>
+                    <span className="block font-medium text-white">Settings</span>
+                    <span className="mt-0.5 block text-[11px] text-muted">Role, API, Motion Library</span>
+                  </span>
+                  <span className="text-accent-soft">→</span>
+                </button>
+              )}
+
               <form action={signOutAction}>
                 <button type="submit" className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-muted hover:bg-white/5 hover:text-bad">
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
@@ -516,6 +752,7 @@ export default function Studio(props: Props) {
                     <div className="px-3 pb-3">
                       <input ref={imgRef} type="file" accept="image/*" multiple hidden onChange={(e) => { uploadImages(e.target.files); e.currentTarget.value = ""; }} />
                       <input ref={vidRef} type="file" accept="video/mp4,video/quicktime,.mp4,.mov" multiple hidden onChange={(e) => { uploadVideos(e.target.files); e.currentTarget.value = ""; }} />
+                      <input ref={audioRef} type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/aac,.mp3,.wav,.m4a,.aac" multiple hidden onChange={(e) => { uploadAudio(e.target.files); e.currentTarget.value = ""; }} />
 
                       {/* ── Batches ── */}
                       <div>
@@ -581,11 +818,14 @@ export default function Studio(props: Props) {
                               className="flex items-center gap-1 text-xs text-muted hover:text-white"
                             >
                               <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: assetsSectionCollapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}><path d="M9 6l6 6-6 6" /></svg>
-                              Ảnh nguồn
+                              Assets nguồn
                             </button>
                             <div className="flex items-center gap-1">
                               <button onClick={() => imgRef.current?.click()} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
                                 + Ảnh
+                              </button>
+                              <button onClick={importFromGoogleDrive} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
+                                + Drive
                               </button>
                               <button onClick={toggleView} title="Đổi cách xem" className="rounded-lg border border-border px-1.5 py-1 text-muted hover:border-accent hover:text-accent-soft">
                                 {view === "grid" ? (
@@ -642,6 +882,26 @@ export default function Studio(props: Props) {
                                     </div>
                                   ))}
                                   {videoAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có video.</p>}
+                                </div>
+                              </div>
+
+                              <div className="mt-2 border-t border-border pt-2">
+                                <div className="mb-1.5 flex items-center justify-between">
+                                  <span className="mono text-[10px] text-muted">Audio Avatar</span>
+                                  <button onClick={() => audioRef.current?.click()} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
+                                    + Audio
+                                  </button>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  {audioAssets.map((a) => (
+                                    <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-1.5 rounded-lg border border-border p-1.5 hover:border-yellow/70">
+                                      <span className="grid h-6 w-6 flex-none place-items-center rounded bg-white/5 text-yellow">
+                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                                      </span>
+                                      <span className="truncate text-xs text-white">{a.filename}</span>
+                                    </div>
+                                  ))}
+                                  {audioAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có audio.</p>}
                                 </div>
                               </div>
                             </>
@@ -714,10 +974,15 @@ export default function Studio(props: Props) {
             onDrop={(e) => { setImgOver(false); const id = e.dataTransfer.getData("text/asset"); if (id) { e.preventDefault(); handleCanvasDrop(id); } }}
             className="min-h-0 flex-1 overflow-y-auto px-7 pb-10"
           >
-            {!props.hasAccount && (
+            {!props.workspaceHasKlingKey && (
               <div className="mb-4 flex items-center gap-3 rounded-xl border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" className="flex-none"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
-                <span>Chưa có tài khoản Kling nào đang bật — bấm Generate sẽ <b>không gọi được API</b>. Vào <button onClick={() => router.push("/admin/kling-accounts")} className="underline">Kling Accounts</button> để thêm/bật khoá.</span>
+                <span>
+                  Workspace này chưa được gán API key Kling riêng.
+                  {props.userRole === "super_admin"
+                    ? <> Bấm avatar góc phải → <b>Settings</b> → <b>API</b> để gán khoá.</>
+                    : <> Nhờ Super Admin gán API key cho workspace này.</>}
+                </span>
               </div>
             )}
             {props.hasAccount && !props.workerOnline && (
@@ -798,7 +1063,6 @@ export default function Studio(props: Props) {
             <div className="space-y-3.5">
               {props.cells.map((c) => {
                 const shared = {
-                  key: c.id,
                   cell: c,
                   collapsed: !!collapsed[c.id],
                   selected: selectedCells.has(c.id),
@@ -808,16 +1072,17 @@ export default function Studio(props: Props) {
                   onDup: () => start(() => duplicateCellAction(props.workspaceId, c.id)),
                   onDel: () => start(() => deleteCellAction(props.workspaceId, c.id)),
                   onConvert: (t: CellTypeTab) => conv(c.id, t),
-                  onPreview: (url: string) => { setPreviewUrl(url); setPreviewOpen(true); },
+                  onPreview: (url: string, label: string) => openPreview(url, label),
                 };
                 if (c.type === "motioncontrol") {
-                  return <MotionCell {...shared} imageAssets={imageAssets} videoAssets={videoAssets} libraryVideos={props.libraryVideos} onField={(p) => updMC(c.id, p)} />;
+                  return <MotionCell key={c.id} {...shared} imageAssets={imageAssets} videoAssets={videoAssets} libraryVideos={props.libraryVideos} onField={(p) => updMC(c.id, p)} />;
                 }
                 if (c.type === "avatar") {
-                  return <AvatarCell {...shared} onField={(p) => updAvatar(c.id, p)} />;
+                  return <AvatarCell key={c.id} {...shared} imageAssets={imageAssets} audioAssets={audioAssets} onField={(p) => updAvatar(c.id, p)} />;
                 }
                 return (
                   <Cell
+                    key={c.id}
                     {...shared}
                     onField={(p) => updI2V(c.id, p)}
                     onSetEnd={(assetId) => updI2V(c.id, { endAssetId: assetId })}
@@ -828,29 +1093,15 @@ export default function Studio(props: Props) {
             </div>
           </div>
         </main>
-        <PreviewSidebar url={previewUrl} open={previewOpen} onToggle={() => setPreviewOpen((v) => !v)} />
+        <PreviewSidebar
+          videos={previewVideos}
+          open={previewOpen}
+          onToggle={() => setPreviewOpen((v) => !v)}
+          onRemove={removePreview}
+          onClear={() => setPreviewVideos([])}
+        />
       </div>
 
-      {/* OVERWRITE CONFIRM TOAST */}
-      {confirmOverwrite && (
-        <div className="fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-yellow/45 bg-surface p-4 shadow-2xl backdrop-blur-md">
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold text-yellow">Đã có đủ 3 outputs</p>
-            <p className="mt-1 text-[11px] text-muted">Ghi đè {confirmOverwrite.label}?</p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <button
-              onClick={() => { start(() => generateCellAction(props.workspaceId, confirmOverwrite.jobId, 0)); setConfirmOverwrite(null); }}
-              className="rounded-lg bg-yellow/20 px-3 py-1.5 text-[11px] font-bold text-yellow hover:bg-yellow/30"
-            >
-              Ghi đè
-            </button>
-            <button onClick={() => setConfirmOverwrite(null)} className="rounded-lg px-3 py-1.5 text-[11px] text-muted hover:text-white">
-              Huỷ
-            </button>
-          </div>
-        </div>
-      )}
       {/* SETTINGS MODAL */}
       {settingsOpen && (
         <div onClick={() => setSettingsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -901,6 +1152,19 @@ export default function Studio(props: Props) {
         </div>
       )}
 
+      {props.appSettings && (
+        <AppSettingsPanel
+          open={appSettingsOpen && props.userRole === "super_admin"}
+          onClose={() => setAppSettingsOpen(false)}
+          activeModule={activeSettingsModule}
+          onModuleChange={setActiveSettingsModule}
+          currentWorkspaceId={props.workspaceId}
+          users={props.appSettings.users}
+          workspaces={props.appSettings.workspaces}
+          libraryVideos={props.libraryVideos}
+        />
+      )}
+
       {/* ── Trim Modal ── */}
       {trimModal && (
         <TrimModal
@@ -913,6 +1177,357 @@ export default function Studio(props: Props) {
           onDone={() => { setTrimModal(null); router.refresh(); }}
         />
       )}
+    </div>
+  );
+}
+
+const ROLE_OPTIONS: { value: AppRole; label: string }[] = [
+  { value: "super_admin", label: "Super Admin" },
+  { value: "manager", label: "Manager" },
+  { value: "member", label: "Member" },
+];
+
+function roleLabel(role: AppRole) {
+  return ROLE_OPTIONS.find((option) => option.value === role)?.label ?? role;
+}
+
+function formatShortDate(value: string) {
+  const [date] = value.split("T");
+  const [year, month, day] = date.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function AppSettingsPanel({
+  open,
+  onClose,
+  activeModule,
+  onModuleChange,
+  currentWorkspaceId,
+  users,
+  workspaces,
+  libraryVideos,
+}: {
+  open: boolean;
+  onClose: () => void;
+  activeModule: "role" | "api" | "motion";
+  onModuleChange: (module: "role" | "api" | "motion") => void;
+  currentWorkspaceId: string;
+  users: NonNullable<AppSettingsData>["users"];
+  workspaces: NonNullable<AppSettingsData>["workspaces"];
+  libraryVideos: LibraryVideoView[];
+}) {
+  if (!open) return null;
+
+  const modules: { id: "role" | "api" | "motion"; label: string; count?: number }[] = [
+    { id: "role", label: "Role", count: users.length },
+    { id: "api", label: "API", count: workspaces.length },
+    { id: "motion", label: "Motion Library", count: libraryVideos.length },
+  ];
+  const roleAction = setUserRoleAction.bind(null, currentWorkspaceId);
+  const saveKeyAction = saveWorkspaceKlingKeyFromSettingsAction.bind(null, currentWorkspaceId);
+  const clearKeyAction = clearWorkspaceKlingKeyFromSettingsAction.bind(null, currentWorkspaceId);
+  const uploadLibraryAction = uploadLibraryVideoFromSettingsAction.bind(null, currentWorkspaceId);
+  const deleteLibraryAction = deleteLibraryVideoFromSettingsAction.bind(null, currentWorkspaceId);
+  const deleteLibrariesAction = deleteLibraryVideosFromSettingsAction.bind(null, currentWorkspaceId);
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[70] flex items-center justify-center bg-black/65 px-4 py-5 backdrop-blur-sm">
+      <div onClick={(e) => e.stopPropagation()} className="flex h-[min(760px,92vh)] w-[min(1080px,96vw)] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+        <aside className="flex w-56 flex-none flex-col border-r border-border bg-black/20">
+          <div className="border-b border-border px-4 py-4">
+            <p className="text-sm font-semibold text-white">Settings</p>
+            <p className="mono mt-1 text-[10px] text-muted">App modules</p>
+          </div>
+          <div className="flex-1 space-y-1 p-2">
+            {modules.map((module) => (
+              <button
+                key={module.id}
+                type="button"
+                onClick={() => onModuleChange(module.id)}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${
+                  activeModule === module.id
+                    ? "bg-accent/20 text-accent-soft"
+                    : "text-muted hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <span className="font-medium">{module.label}</span>
+                {typeof module.count === "number" && (
+                  <span className="mono rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted">
+                    {module.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <section className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <div>
+              <h3 className="text-base font-semibold text-white">
+                {modules.find((module) => module.id === activeModule)?.label}
+              </h3>
+              <p className="mt-1 text-xs text-muted">
+                {activeModule === "role" && "Assign role theo email."}
+                {activeModule === "api" && "Gán Kling Key riêng cho từng workspace."}
+                {activeModule === "motion" && "Quản lý video template cho Motion Control."}
+              </p>
+            </div>
+            <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-white/10 hover:text-white">
+              ✕
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            {activeModule === "role" && (
+              <div className="space-y-5">
+                <form action={roleAction} className="grid gap-3 rounded-xl border border-border bg-surface-2 p-4 md:grid-cols-[1fr_180px_auto] md:items-end">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="mono text-[10px] text-muted">Email</span>
+                    <input
+                      name="email"
+                      type="email"
+                      required
+                      placeholder="name@company.com"
+                      className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="mono text-[10px] text-muted">Role</span>
+                    <select name="role" defaultValue="member" className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-white outline-none focus:border-accent">
+                      {ROLE_OPTIONS.map((role) => (
+                        <option key={role.value} value={role.value}>{role.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[#04212c] hover:bg-accent-hover">
+                    Assign
+                  </button>
+                </form>
+
+                <div className="overflow-hidden rounded-xl border border-border">
+                  <div className="grid grid-cols-[minmax(220px,1fr)_150px_120px] gap-3 border-b border-border bg-black/15 px-4 py-2.5 mono text-[10px] text-muted">
+                    <span>User</span>
+                    <span>Role</span>
+                    <span className="text-right">Action</span>
+                  </div>
+                  {users.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-sm text-muted">Chưa có user nào.</p>
+                  ) : (
+                    users.map((user) => (
+                      <form
+                        key={user.id}
+                        action={roleAction}
+                        className="grid grid-cols-[minmax(220px,1fr)_150px_120px] items-center gap-3 border-b border-border/60 px-4 py-3 last:border-0"
+                      >
+                        <input type="hidden" name="email" value={user.email} />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-white">{user.email}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted">
+                            {user.name || "No name"} · {formatShortDate(user.createdAt)}
+                          </p>
+                        </div>
+                        <select name="role" defaultValue={user.role} className="rounded-lg border border-border bg-surface-2 px-2.5 py-2 text-xs text-white outline-none focus:border-accent">
+                          {ROLE_OPTIONS.map((role) => (
+                            <option key={role.value} value={role.value}>{role.label}</option>
+                          ))}
+                        </select>
+                        <button type="submit" className="justify-self-end rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted hover:border-accent hover:text-accent-soft">
+                          Lưu
+                        </button>
+                      </form>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeModule === "api" && (
+              <div className="grid gap-3">
+                {workspaces.length === 0 ? (
+                  <p className="rounded-xl border border-border px-4 py-8 text-center text-sm text-muted">Chưa có workspace nào.</p>
+                ) : (
+                  workspaces.map((workspace) => (
+                    <div key={workspace.id} className="rounded-xl border border-border bg-surface-2 p-4">
+                      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-white">{workspace.name}</p>
+                          <p className="mono mt-0.5 text-[10px] text-muted">{formatShortDate(workspace.createdAt)}</p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
+                          workspace.hasKlingKey
+                            ? "border-ok/35 bg-ok/10 text-ok"
+                            : "border-yellow/35 bg-yellow/10 text-yellow"
+                        }`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${workspace.hasKlingKey ? "bg-ok" : "bg-yellow"}`} />
+                          {workspace.hasKlingKey ? "Đã gán key" : "Chưa có key"}
+                        </span>
+                      </div>
+                      <form action={saveKeyAction} className="flex flex-wrap gap-2">
+                        <input type="hidden" name="workspaceId" value={workspace.id} />
+                        <input
+                          name="apiKey"
+                          type="password"
+                          required
+                          placeholder={workspace.hasKlingKey ? "API key mới để thay thế..." : "Kling API key..."}
+                          className="min-w-[220px] flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                        />
+                        <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[#04212c] hover:bg-accent-hover">
+                          Lưu key
+                        </button>
+                      </form>
+                      {workspace.hasKlingKey && (
+                        <form action={clearKeyAction} className="mt-2">
+                          <input type="hidden" name="workspaceId" value={workspace.id} />
+                          <button type="submit" className="text-xs text-muted underline hover:text-bad">
+                            Xoá key khỏi workspace này
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeModule === "motion" && (
+              <div className="space-y-5">
+                <form action={uploadLibraryAction} className="grid gap-3 rounded-xl border border-border bg-surface-2 p-4 md:grid-cols-[220px_1fr_auto] md:items-end">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="mono text-[10px] text-muted">Tên / Prefix</span>
+                    <input
+                      name="name"
+                      placeholder="vd: Turn around"
+                      className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                    />
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1.5">
+                    <span className="mono text-[10px] text-muted">Video</span>
+                    <input
+                      type="file"
+                      name="files"
+                      accept="video/mp4,video/quicktime,.mp4,.mov"
+                      multiple
+                      required
+                      className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-white file:mr-2 file:rounded-md file:border-0 file:bg-accent/20 file:px-2 file:py-1 file:text-xs file:text-accent-soft"
+                    />
+                  </label>
+                  <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[#04212c] hover:bg-accent-hover">
+                    Upload
+                  </button>
+                </form>
+
+                <form action={deleteLibrariesAction} className="overflow-hidden rounded-xl border border-border">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-black/15 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Video templates</p>
+                      <p className="mt-0.5 text-xs text-muted">Chọn một hoặc nhiều video để xoá.</p>
+                    </div>
+                    <button type="submit" className="rounded-lg border border-bad/45 px-3 py-2 text-xs font-semibold text-bad hover:bg-bad/10">
+                      Xoá đã chọn
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[720px] text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-left mono text-[10px] text-muted">
+                          <th className="w-12 px-4 py-3 font-normal">Chọn</th>
+                          <th className="px-4 py-3 font-normal">Preview</th>
+                          <th className="px-4 py-3 font-normal">Tên</th>
+                          <th className="px-4 py-3 font-normal">File</th>
+                          <th className="px-4 py-3 font-normal">Ngày</th>
+                          <th className="px-4 py-3 text-right font-normal">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {libraryVideos.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-10 text-center text-muted">
+                              Thư viện trống.
+                            </td>
+                          </tr>
+                        )}
+                        {libraryVideos.map((video) => (
+                          <tr key={video.id} className="border-b border-border/60 last:border-0">
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                name="ids"
+                                value={video.id}
+                                aria-label={`Chọn ${video.name}`}
+                                className="h-4 w-4 rounded border-border bg-surface-2 accent-accent"
+                              />
+                            </td>
+                            <td className="px-4 py-3">
+                              <video src={`/api/library/${video.id}`} preload="metadata" muted className="h-14 w-20 rounded-lg bg-black object-cover" />
+                            </td>
+                            <td className="px-4 py-3 font-medium text-white">{video.name}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-muted">{video.filename}</td>
+                            <td className="px-4 py-3 text-muted">{formatShortDate(video.createdAt)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="submit"
+                                formAction={deleteLibraryAction}
+                                name="id"
+                                value={video.id}
+                                className="text-xs text-muted hover:text-bad"
+                              >
+                                Xoá
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function OutputSlotsPanel({
+  cell,
+  onPreview,
+}: {
+  cell: CellView;
+  onPreview: (url: string, label: string) => void;
+}) {
+  return (
+    <div className="flex h-[220px] w-44 flex-none flex-col gap-1 overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-surface-2 p-2">
+      {cell.resultUrls.map((url, i) => {
+        const status = cell.slotStatuses[i] ?? (url ? "succeeded" : "idle");
+        const light = slotLight(status, Boolean(url));
+        const active = isActiveOutputStatus(status);
+        const err = cell.slotErrors[i];
+        return (
+          <div key={i}>
+            {url ? (
+              <button
+                onClick={() => onPreview(url, `Output ${i + 1}`)}
+                className={`flex w-full items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] ${light.border} ${light.bg} ${light.text} hover:bg-white/10`}
+                title={active ? `Kling: ${light.label}` : undefined}
+              >
+                <span className={`h-2 w-2 flex-none rounded-full ${light.dot}`} style={{ boxShadow: active ? "0 0 8px currentColor" : undefined }} />
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" className="flex-none"><path d="M5 3l14 9-14 9z" /></svg>
+                <span className="truncate">Output {i + 1}</span>
+              </button>
+            ) : (
+              <div className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[10px] ${light.border} ${light.bg} ${light.text}`}>
+                <span className={`h-2 w-2 flex-none rounded-full ${light.dot}`} style={{ boxShadow: active ? "0 0 8px currentColor" : undefined }} />
+                <span className="truncate">
+                  {active ? `${light.label}…` : status === "failed" ? "Lỗi" : `Slot ${i + 1}`}
+                </span>
+              </div>
+            )}
+            {status === "failed" && err && <p className="mt-0.5 line-clamp-1 text-[9px] text-bad">{err}</p>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -933,11 +1548,22 @@ function Cell({
   onDup: () => void;
   onDel: () => void;
   onConvert: (t: CellTypeTab) => void;
-  onPreview: (url: string) => void;
+  onPreview: (url: string, label: string) => void;
 }) {
   const [endOver, setEndOver] = useState(false);
-  const st = ST[cell.status];
-  const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
+  const st = cellStatusMeta(cell);
+  const generating = hasActiveSlots(cell);
+  const caps = getKlingImageCapabilities(cell.modelName);
+  const nativeAudioSupported = canUseKlingNativeAudio(cell.modelName, cell.mode);
+  const ratioSupported = caps.supportsVideoRatio;
+  const cellMeta = [
+    cell.modelName,
+    `${cell.duration}s`,
+    cell.mode,
+    ratioSupported ? cell.videoRatio : null,
+    cell.nativeAudio ? "audio" : null,
+    cell.multiShot ? "multi-shot" : null,
+  ].filter(Boolean).join(" · ");
 
   const selBox = (
     <button
@@ -981,11 +1607,11 @@ function Cell({
           )}
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-white">{cell.prompt || "(chưa có prompt)"}</div>
-            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cell.modelName} · {cell.duration}s · {cell.mode}</span><span className="ml-auto text-[9px]">{cell.resultUrls.filter(Boolean).length}/3</span></div>
+            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cellMeta}</span><span className="ml-auto text-[9px]">{outputCountText(cell)}</span></div>
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
-            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
+            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!, "Output mới nhất"); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
             </button>
           )}
@@ -1037,21 +1663,58 @@ function Cell({
             <TypeTabs active="image2video" onChange={onConvert} />
             <Field label="Model">
               <select defaultValue={cell.modelName} onChange={(e) => onField({ modelName: e.target.value })} className="kf-select">
-                {MODELS_I2V.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                {KLING_I2V_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </Field>
             <Field label="Độ dài">
               <select defaultValue={cell.duration} onChange={(e) => onField({ duration: e.target.value })} className="kf-select">
-                {DURATIONS.map((d) => <option key={d} value={d}>{d} giây</option>)}
+                {caps.durations.map((d) => <option key={d} value={d}>{d} giây</option>)}
               </select>
             </Field>
             <Field label="Quality">
-              <select defaultValue={cell.mode} onChange={(e) => onField({ mode: e.target.value as "std" | "pro" | "4k" })} className="kf-select">
-                <option value="std">Standard</option>
-                <option value="pro">Professional</option>
-                <option value="4k">4K</option>
-              </select>
+              <SegmentedGroup>
+                {KLING_IMAGE_MODE_OPTIONS.map((m) => (
+                  <SegmentedButton
+                    key={m.value}
+                    active={cell.mode === m.value}
+                    disabled={!caps.modes.includes(m.value)}
+                    title={caps.modes.includes(m.value) ? m.label : "Model này không support mode này"}
+                    onClick={() => onField({ mode: m.value })}
+                  >
+                    {m.value === "std" ? "Std" : m.value === "pro" ? "Pro" : "4K"}
+                  </SegmentedButton>
+                ))}
+              </SegmentedGroup>
             </Field>
+            <Field label="Video Ratio">
+              <SegmentedGroup>
+                {KLING_VIDEO_RATIO_OPTIONS.map((r) => (
+                  <SegmentedButton
+                    key={r.value}
+                    active={cell.videoRatio === r.value}
+                    disabled={!ratioSupported}
+                    title={ratioSupported ? `${r.label} output` : "Model này không support chọn ratio"}
+                    onClick={() => onField({ videoRatio: r.value })}
+                  >
+                    {r.label}
+                  </SegmentedButton>
+                ))}
+              </SegmentedGroup>
+            </Field>
+            <FeatureToggle
+              label="Native Audio"
+              active={cell.nativeAudio && nativeAudioSupported}
+              disabled={!nativeAudioSupported}
+              title={nativeAudioSupported ? "Bật native audio" : "Native Audio chỉ support với model/mode phù hợp"}
+              onClick={() => onField({ nativeAudio: !cell.nativeAudio })}
+            />
+            <FeatureToggle
+              label="Multi-shot"
+              active={cell.multiShot && caps.supportsMultiShot}
+              disabled={!caps.supportsMultiShot}
+              title={caps.supportsMultiShot ? "Bật multi-shot intelligence" : "Model này không support Multi-shot"}
+              onClick={() => onField({ multiShot: !cell.multiShot })}
+            />
           </div>
           <textarea
             defaultValue={cell.prompt}
@@ -1066,44 +1729,20 @@ function Cell({
         <div className="mx-4 flex w-[134px] flex-none flex-col gap-3.5">
           <button
             onClick={onGenerate}
-            disabled={busy}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] hover:brightness-110 ${
+              generating
+                ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]"
+                : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a]"
+            }`}
           >
-            {genLabel(cell.status)}
+            {activeSlotText(cell)}
           </button>
           <button onClick={onDup} className="rounded-lg border border-accent/50 bg-accent/15 px-1.5 py-2 text-[10.5px] font-semibold text-accent-soft hover:bg-accent/25">+ Biến thể</button>
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* result — 3 slots */}
-        <div className="flex w-36 flex-none flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface-2 p-2">
-          {cell.resultUrls.map((url, i) => {
-            const isGenerating = !url && cell.targetSlot === i && (cell.status === "queued" || cell.status === "submitted" || cell.status === "processing");
-            return (
-              <div key={i}>
-                {url ? (
-                  <button onClick={() => onPreview(url)} className="flex w-full items-center gap-1.5 rounded-lg border border-ok/30 bg-ok/5 px-2 py-1.5 text-[11px] text-ok hover:bg-ok/10">
-                    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" className="flex-none"><path d="M5 3l14 9-14 9z" /></svg>
-                    <span className="truncate">Output {i + 1}</span>
-                  </button>
-                ) : isGenerating ? (
-                  <div className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/5 px-2 py-1.5 text-[10px] text-accent-soft">
-                    <span>⟳</span>
-                    <span className="truncate">{cell.status === "queued" ? "Đợi..." : "Đang tạo"}</span>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">○ Slot {i + 1}</div>
-                )}
-              </div>
-            );
-          })}
-          {cell.status === "failed" && cell.error && (
-            <p className="mt-0.5 line-clamp-2 text-[9px] text-bad">{cell.error}</p>
-          )}
-          {!cell.resultUrls.some(Boolean) && cell.status !== "failed" && (
-            <p className={`mono mt-0.5 text-center text-[9px] ${st.c}`}>{st.t}</p>
-          )}
-        </div>
+        {/* result slots */}
+        <OutputSlotsPanel cell={cell} onPreview={onPreview} />
       </div>
     </div>
   );
@@ -1126,12 +1765,29 @@ function MotionCell({
   onDup: () => void;
   onDel: () => void;
   onConvert: (t: CellTypeTab) => void;
-  onPreview: (url: string) => void;
+  onPreview: (url: string, label: string) => void;
 }) {
   const [imgDropOver, setImgDropOver] = useState(false);
   const [vidDropOver, setVidDropOver] = useState(false);
-  const st = ST[cell.status];
-  const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
+  const [videoSourceMode, setVideoSourceMode] = useState<"asset" | "library">(
+    cell.libraryVideoId ? "library" : "asset",
+  );
+  const st = cellStatusMeta(cell);
+  const generating = hasActiveSlots(cell);
+  const missingImage = !cell.startAssetId;
+  const missingVideo = !cell.videoAssetId && !cell.libraryVideoId;
+  const canGenerate = !missingImage && !missingVideo;
+  const motionMeta = [
+    cell.modelName,
+    cell.mode === "pro" ? "1080p" : "720p",
+    cell.characterOrientation === "video" ? "orient video <=30s" : "orient image <=10s",
+    cell.keepOriginalSound === "yes" ? "keep sound" : "silent",
+  ].join(" · ");
+
+  useEffect(() => {
+    if (cell.libraryVideoId) setVideoSourceMode("library");
+    else if (cell.videoAssetId) setVideoSourceMode("asset");
+  }, [cell.libraryVideoId, cell.videoAssetId]);
 
   const selBox = (
     <button
@@ -1179,11 +1835,16 @@ function MotionCell({
           <span className="mono flex-none rounded-md bg-accent/15 px-1.5 py-0.5 text-[9px] text-accent-soft">Motion Control</span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-white">{cell.prompt || "(chưa có prompt)"}</div>
-            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cell.modelName} · {cell.mode} · orient:{cell.characterOrientation}</span><span className="ml-auto text-[9px]">{cell.resultUrls.filter(Boolean).length}/3</span></div>
+            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted">
+              <span>
+                {motionMeta} · {cell.libraryVideoId ? "Template library" : cell.videoAssetId ? "Video upload" : "Chưa chọn video"}
+              </span>
+              <span className="ml-auto text-[9px]">{outputCountText(cell)}</span>
+            </div>
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
-            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
+            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!, "Output mới nhất"); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
             </button>
           )}
@@ -1229,59 +1890,98 @@ function MotionCell({
             </div>
           </div>
 
-          {/* Video chuyển động — library grid + custom drag */}
+          {/* Video chuyển động — 2 modes: project-uploaded asset OR library template */}
           <div className="flex w-[220px] flex-col gap-1.5">
             <span className="mono text-[9px] text-accent-soft">Video chuyển động</span>
 
-            {libraryVideos.length > 0 ? (
-              <>
-                <div className="grid grid-cols-3 gap-1" style={{ maxHeight: 112, overflowY: "auto" }}>
-                  {libraryVideos.map((v) => {
-                    const isSelected = cell.libraryVideoId === v.id;
-                    return (
-                      <button
-                        key={v.id}
-                        onClick={() => onField({ libraryVideoId: isSelected ? null : v.id, videoAssetId: null })}
-                        title={v.name}
-                        className={`relative overflow-hidden rounded border transition ${isSelected ? "border-accent ring-1 ring-accent/60" : "border-border hover:border-accent/50"}`}
-                        style={{ aspectRatio: "16/9" }}
-                      >
-                        <video src={`/api/library/${v.id}`} muted preload="metadata" className="h-full w-full object-cover bg-black" />
-                        {isSelected && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-accent/40">
-                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="white" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
-                          </div>
-                        )}
-                        <div className="absolute bottom-0 left-0 right-0 truncate bg-black/60 px-1 py-px text-[7px] leading-tight text-white">{v.name}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {cell.libraryVideoId && (
-                  <p className="mono truncate text-[9px] text-accent-soft">✓ {libraryVideos.find((v) => v.id === cell.libraryVideoId)?.name}</p>
-                )}
-              </>
-            ) : (
-              <p className="text-[10px] italic text-muted">Thư viện trống.</p>
-            )}
-
-            <div
-              onDragOver={(e) => { e.preventDefault(); setVidDropOver(true); }}
-              onDragLeave={() => setVidDropOver(false)}
-              onDrop={(e) => {
-                e.preventDefault(); e.stopPropagation(); setVidDropOver(false);
-                const id = e.dataTransfer.getData("text/asset");
-                if (id && videoAssets.some((a) => a.id === id)) onField({ videoAssetId: id, libraryVideoId: null });
-              }}
-              className={`flex items-center gap-2 rounded-lg border border-dashed px-2 py-1.5 text-[10px] transition ${vidDropOver ? "border-accent bg-accent/10 text-accent-soft" : cell.videoAssetId ? "border-border text-accent-soft" : "border-border text-muted"}`}
-            >
-              <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" className="flex-none opacity-50"><path d="M5 3l14 9-14 9z" /></svg>
-              <span className="truncate">
-                {cell.videoAssetId
-                  ? videoAssets.find((a) => a.id === cell.videoAssetId)?.filename ?? "Video tuỳ chỉnh"
-                  : "Kéo video tuỳ chỉnh vào đây"}
-              </span>
+            <div className="grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5 text-[10px] font-semibold">
+              <button
+                type="button"
+                onClick={() => {
+                  setVideoSourceMode("asset");
+                  if (cell.libraryVideoId) onField({ libraryVideoId: null });
+                }}
+                className={`rounded-md px-2 py-1.5 transition ${videoSourceMode === "asset" ? "bg-accent/20 text-accent-soft" : "text-muted hover:text-white"}`}
+              >
+                Upload video
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVideoSourceMode("library");
+                  if (cell.videoAssetId) onField({ videoAssetId: null });
+                }}
+                className={`rounded-md px-2 py-1.5 transition ${videoSourceMode === "library" ? "bg-accent/20 text-accent-soft" : "text-muted hover:text-white"}`}
+              >
+                Template
+              </button>
             </div>
+
+            {videoSourceMode === "library" ? (
+              libraryVideos.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-3 gap-1" style={{ maxHeight: 136, overflowY: "auto" }}>
+                    {libraryVideos.map((v) => {
+                      const isSelected = cell.libraryVideoId === v.id;
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => onField({ libraryVideoId: isSelected ? null : v.id, videoAssetId: null })}
+                          title={v.name}
+                          className={`relative overflow-hidden rounded border transition ${isSelected ? "border-accent ring-1 ring-accent/60" : "border-border hover:border-accent/50"}`}
+                          style={{ aspectRatio: "16/9" }}
+                        >
+                          <video src={`/api/library/${v.id}`} muted preload="metadata" className="h-full w-full object-cover bg-black" />
+                          {isSelected && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-accent/40">
+                              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="white" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 truncate bg-black/60 px-1 py-px text-[7px] leading-tight text-white">{v.name}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {cell.libraryVideoId && (
+                    <p className="mono truncate text-[9px] text-accent-soft">
+                      ✓ Template: {libraryVideos.find((v) => v.id === cell.libraryVideoId)?.name}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="rounded-lg border border-dashed border-border px-2 py-3 text-center text-[10px] italic text-muted">
+                  Thư viện trống. Super Admin upload template trong Settings.
+                </p>
+              )
+            ) : (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setVidDropOver(true); }}
+                onDragLeave={() => setVidDropOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault(); e.stopPropagation(); setVidDropOver(false);
+                  const id = e.dataTransfer.getData("text/asset");
+                  if (id && videoAssets.some((a) => a.id === id)) onField({ videoAssetId: id, libraryVideoId: null });
+                }}
+                className={`flex min-h-[72px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-2 py-2 text-center text-[10px] transition ${vidDropOver ? "border-accent bg-accent/10 text-accent-soft" : cell.videoAssetId ? "border-accent/50 bg-accent/5 text-accent-soft" : "border-border text-muted"}`}
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" className="opacity-60"><path d="M5 3l14 9-14 9z" /></svg>
+                <span className="max-w-full truncate">
+                  {cell.videoAssetId
+                    ? videoAssets.find((a) => a.id === cell.videoAssetId)?.filename ?? "Video input đã chọn"
+                    : "Kéo video input đã upload từ sidebar vào đây"}
+                </span>
+                {cell.videoAssetId && (
+                  <button
+                    type="button"
+                    onClick={() => onField({ videoAssetId: null })}
+                    className="text-[9px] text-muted underline hover:text-bad"
+                  >
+                    Bỏ video
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1292,27 +1992,60 @@ function MotionCell({
           <div className="flex flex-wrap items-center gap-2">
             <TypeTabs active="motioncontrol" onChange={onConvert} />
             <Field label="Model">
-              <select defaultValue={cell.modelName} onChange={(e) => onField({ modelName: e.target.value })} className="kf-select">
-                {MODELS_MC.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </select>
+              <SegmentedGroup>
+                {KLING_MOTION_MODELS.map((m) => (
+                  <SegmentedButton
+                    key={m.value}
+                    active={cell.modelName === m.value}
+                    title={m.note}
+                    onClick={() => onField({ modelName: m.value })}
+                  >
+                    {m.label.replace("Kling ", "")}
+                  </SegmentedButton>
+                ))}
+              </SegmentedGroup>
             </Field>
             <Field label="Quality">
-              <select defaultValue={cell.mode} onChange={(e) => onField({ mode: e.target.value as "std" | "pro" })} className="kf-select">
-                <option value="std">Standard</option>
-                <option value="pro">Professional</option>
-              </select>
+              <SegmentedGroup>
+                {KLING_MOTION_MODE_OPTIONS.map((m) => (
+                  <SegmentedButton
+                    key={m.value}
+                    active={cell.mode === m.value}
+                    title={m.note}
+                    onClick={() => onField({ mode: m.value })}
+                  >
+                    {m.value.toUpperCase()}
+                  </SegmentedButton>
+                ))}
+              </SegmentedGroup>
             </Field>
-            <Field label="Character Orient.">
-              <select defaultValue={cell.characterOrientation} onChange={(e) => onField({ characterOrientation: e.target.value as "image" | "video" })} className="kf-select">
-                <option value="image">Image (video ≤10 s)</option>
-                <option value="video">Video (video ≤30 s)</option>
-              </select>
+            <Field label="Orientation">
+              <SegmentedGroup>
+                {KLING_MOTION_ORIENTATION_OPTIONS.map((o) => (
+                  <SegmentedButton
+                    key={o.value}
+                    active={cell.characterOrientation === o.value}
+                    title={o.note}
+                    onClick={() => onField({ characterOrientation: o.value })}
+                  >
+                    {o.label}
+                  </SegmentedButton>
+                ))}
+              </SegmentedGroup>
             </Field>
             <Field label="Keep Sound">
-              <select defaultValue={cell.keepOriginalSound} onChange={(e) => onField({ keepOriginalSound: e.target.value as "yes" | "no" })} className="kf-select">
-                <option value="yes">Giữ âm thanh gốc</option>
-                <option value="no">Tắt âm thanh gốc</option>
-              </select>
+              <SegmentedGroup>
+                {KLING_SOUND_MODE_OPTIONS.map((s) => (
+                  <SegmentedButton
+                    key={s.value}
+                    active={cell.keepOriginalSound === s.value}
+                    title={s.value === "yes" ? "Giữ âm thanh gốc của motion video" : "Tạo video im lặng"}
+                    onClick={() => onField({ keepOriginalSound: s.value })}
+                  >
+                    {s.value === "yes" ? "On" : "Off"}
+                  </SegmentedButton>
+                ))}
+              </SegmentedGroup>
             </Field>
           </div>
           <textarea
@@ -1322,51 +2055,40 @@ function MotionCell({
             className="min-h-[54px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
           />
           {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
-          <div className="mono rounded-md bg-accent/10 px-2 py-1 text-[10px] text-accent-soft">Motion Control 3.0</div>
+          <div className="flex flex-wrap gap-1">
+            <span className="mono rounded-md bg-accent/10 px-2 py-1 text-[10px] text-accent-soft">
+              {cell.modelName === "kling-v3" ? "Motion Control 3.0" : "Motion Control 2.6"}
+            </span>
+            <span className="mono rounded-md bg-white/5 px-2 py-1 text-[10px] text-muted">
+              {cell.characterOrientation === "video" ? "Reference video <=30s" : "Reference video <=10s"}
+            </span>
+            {cell.modelName === "kling-v3" && (
+              <span className="mono rounded-md bg-yellow/10 px-2 py-1 text-[10px] text-yellow/80">4K không support Motion Control</span>
+            )}
+          </div>
         </div>
 
         {/* actions */}
         <div className="mx-4 flex w-[134px] flex-none flex-col gap-3.5">
           <button
             onClick={onGenerate}
-            disabled={busy || (!cell.videoAssetId && !cell.libraryVideoId)}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : (!cell.videoAssetId && !cell.libraryVideoId) ? "cursor-not-allowed bg-surface-2 text-muted" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+            disabled={!canGenerate}
+            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${
+              !canGenerate
+                ? "cursor-not-allowed bg-surface-2 text-muted"
+                : generating
+                  ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110"
+                  : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"
+            }`}
           >
-            {!busy && !cell.videoAssetId && !cell.libraryVideoId ? "Cần video" : genLabel(cell.status)}
+            {!canGenerate ? (missingImage ? "Cần ảnh" : "Cần video") : activeSlotText(cell)}
           </button>
           <button onClick={onDup} className="rounded-lg border border-accent/50 bg-accent/15 px-1.5 py-2 text-[10.5px] font-semibold text-accent-soft hover:bg-accent/25">+ Biến thể</button>
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* result — 3 slots */}
-        <div className="flex w-36 flex-none flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface-2 p-2">
-          {cell.resultUrls.map((url, i) => {
-            const isGenerating = !url && cell.targetSlot === i && (cell.status === "queued" || cell.status === "submitted" || cell.status === "processing");
-            return (
-              <div key={i}>
-                {url ? (
-                  <button onClick={() => onPreview(url)} className="flex w-full items-center gap-1.5 rounded-lg border border-ok/30 bg-ok/5 px-2 py-1.5 text-[11px] text-ok hover:bg-ok/10">
-                    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" className="flex-none"><path d="M5 3l14 9-14 9z" /></svg>
-                    <span className="truncate">Output {i + 1}</span>
-                  </button>
-                ) : isGenerating ? (
-                  <div className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/5 px-2 py-1.5 text-[10px] text-accent-soft">
-                    <span>⟳</span>
-                    <span className="truncate">{cell.status === "queued" ? "Đợi..." : "Đang tạo"}</span>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">○ Slot {i + 1}</div>
-                )}
-              </div>
-            );
-          })}
-          {cell.status === "failed" && cell.error && (
-            <p className="mt-0.5 line-clamp-2 text-[9px] text-bad">{cell.error}</p>
-          )}
-          {!cell.resultUrls.some(Boolean) && cell.status !== "failed" && (
-            <p className={`mono mt-0.5 text-center text-[9px] ${st.c}`}>{st.t}</p>
-          )}
-        </div>
+        {/* result slots */}
+        <OutputSlotsPanel cell={cell} onPreview={onPreview} />
       </div>
     </div>
   );
@@ -1374,9 +2096,11 @@ function MotionCell({
 
 // ── Avatar Cell ───────────────────────────────────────────────────────────────
 function AvatarCell({
-  cell, collapsed, selected, onSelect, onToggle, onField, onGenerate, onDup, onDel, onConvert, onPreview,
+  cell, imageAssets, audioAssets, collapsed, selected, onSelect, onToggle, onField, onGenerate, onDup, onDel, onConvert, onPreview,
 }: {
   cell: CellView;
+  imageAssets: AssetView[];
+  audioAssets: AssetView[];
   collapsed: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -1386,11 +2110,31 @@ function AvatarCell({
   onDup: () => void;
   onDel: () => void;
   onConvert: (t: CellTypeTab) => void;
-  onPreview: (url: string) => void;
+  onPreview: (url: string, label: string) => void;
 }) {
-  const st = ST[cell.status];
-  const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
-  const canGenerate = !busy && !!cell.avatarId && !!cell.voiceId && !!cell.avatarText;
+  const [imgDropOver, setImgDropOver] = useState(false);
+  const [audioDropOver, setAudioDropOver] = useState(false);
+  const [audioSourceMode, setAudioSourceMode] = useState<"asset" | "audio_id" | "url">(
+    cell.avatarAudioAssetId ? "asset" : cell.avatarAudioId ? "audio_id" : "url",
+  );
+  const st = cellStatusMeta(cell);
+  const generating = hasActiveSlots(cell);
+  const avatarPrompt = cell.prompt || cell.avatarText;
+  const hasAudio = Boolean(cell.avatarAudioAssetId || cell.avatarAudioId.trim() || cell.avatarSoundUrl.trim());
+  const canGenerate = Boolean(cell.startAssetId && hasAudio);
+  const audioLabel = cell.avatarAudioAssetId
+    ? audioAssets.find((a) => a.id === cell.avatarAudioAssetId)?.filename ?? "Audio asset"
+    : cell.avatarAudioId
+      ? `audio_id: ${cell.avatarAudioId}`
+      : cell.avatarSoundUrl
+        ? "Audio URL"
+        : "Chưa có audio";
+
+  useEffect(() => {
+    if (cell.avatarAudioAssetId) setAudioSourceMode("asset");
+    else if (cell.avatarAudioId) setAudioSourceMode("audio_id");
+    else if (cell.avatarSoundUrl) setAudioSourceMode("url");
+  }, [cell.avatarAudioAssetId, cell.avatarAudioId, cell.avatarSoundUrl]);
 
   const selBox = (
     <button
@@ -1430,17 +2174,21 @@ function AvatarCell({
         >
           {selBox}
           {handle}
-          <span className="grid h-14 w-10 flex-none place-items-center rounded-md border border-dashed border-yellow/40 text-yellow/60">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /></svg>
-          </span>
+          {cell.startAssetId ? (
+            <img src={assetUrl(cell.startAssetId)} alt="" className="h-14 w-10 flex-none rounded-md border border-yellow/30 object-cover" />
+          ) : (
+            <span className="grid h-14 w-10 flex-none place-items-center rounded-md border border-dashed border-yellow/40 text-yellow/60">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /></svg>
+            </span>
+          )}
           <span className="mono flex-none rounded-md bg-yellow/15 px-1.5 py-0.5 text-[9px] text-yellow">Avatar</span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm text-white">{cell.avatarText || "(chưa có văn bản)"}</div>
-            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cell.avatarId || "—"} · {cell.voiceId || "—"} · {cell.voiceLanguage}</span><span className="ml-auto text-[9px]">{cell.resultUrls.filter(Boolean).length}/3</span></div>
+            <div className="truncate text-sm text-white">{avatarPrompt || "(chưa có prompt)"}</div>
+            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cell.mode} · {audioLabel}</span><span className="ml-auto text-[9px]">{outputCountText(cell)}</span></div>
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
-            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
+            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!, "Output mới nhất"); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
             </button>
           )}
@@ -1460,10 +2208,84 @@ function AvatarCell({
         {selBox}
         {handle}
 
-        {/* avatar icon placeholder */}
-        <div className="ml-3 flex h-[156px] w-[90px] flex-none flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-yellow/30 text-center text-[10px] text-yellow/60">
-          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="12" cy="8" r="4.5" /><path d="M3 21c0-5 4-8.5 9-8.5s9 3.5 9 8.5" /></svg>
-          Avatar
+        <div className="ml-3 flex flex-none items-start gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="mono text-[9px] text-yellow">Ảnh Avatar</span>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setImgDropOver(true); }}
+              onDragLeave={() => setImgDropOver(false)}
+              onDrop={(e) => {
+                e.preventDefault(); e.stopPropagation(); setImgDropOver(false);
+                const id = e.dataTransfer.getData("text/asset");
+                if (id && imageAssets.some((a) => a.id === id)) onField({ imageAssetId: id });
+              }}
+              className={`h-[156px] w-[112px] overflow-hidden rounded-lg border border-dashed ${imgDropOver ? "border-yellow bg-yellow/10" : "border-yellow/35"}`}
+            >
+              {cell.startAssetId ? (
+                <img src={assetUrl(cell.startAssetId)} alt="avatar ref" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-1 text-center text-[10px] text-yellow/60">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="12" cy="8" r="4.5" /><path d="M3 21c0-5 4-8.5 9-8.5s9 3.5 9 8.5" /></svg>
+                  Kéo ảnh vào
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex w-[260px] flex-col gap-1.5">
+            <span className="mono text-[9px] text-yellow">Audio</span>
+            <div className="grid grid-cols-3 rounded-lg border border-border bg-surface-2 p-0.5 text-[10px] font-semibold">
+              {[
+                ["asset", "Upload"],
+                ["audio_id", "Audio ID"],
+                ["url", "URL"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setAudioSourceMode(id as "asset" | "audio_id" | "url")}
+                  className={`rounded-md px-2 py-1.5 transition ${audioSourceMode === id ? "bg-yellow/20 text-yellow" : "text-muted hover:text-white"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {audioSourceMode === "asset" ? (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setAudioDropOver(true); }}
+                onDragLeave={() => setAudioDropOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault(); e.stopPropagation(); setAudioDropOver(false);
+                  const id = e.dataTransfer.getData("text/asset");
+                  if (id && audioAssets.some((a) => a.id === id)) onField({ avatarAudioAssetId: id });
+                }}
+                className={`flex min-h-[86px] flex-col justify-center gap-1 rounded-lg border border-dashed px-2 py-2 text-[10px] transition ${audioDropOver ? "border-yellow bg-yellow/10 text-yellow" : cell.avatarAudioAssetId ? "border-yellow/50 bg-yellow/5 text-yellow" : "border-border text-muted"}`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                  <span className="truncate">{cell.avatarAudioAssetId ? audioLabel : "Kéo audio từ sidebar vào đây"}</span>
+                </div>
+                {cell.avatarAudioAssetId && (
+                  <audio src={assetUrl(cell.avatarAudioAssetId)} controls className="h-7 w-full" />
+                )}
+              </div>
+            ) : audioSourceMode === "audio_id" ? (
+              <input
+                defaultValue={cell.avatarAudioId}
+                onBlur={(e) => { if (e.target.value !== cell.avatarAudioId) onField({ avatarAudioId: e.target.value }); }}
+                placeholder="audio_id từ Kling TTS"
+                className="kf-select w-full font-mono text-[11px]"
+              />
+            ) : (
+              <input
+                defaultValue={cell.avatarSoundUrl}
+                onBlur={(e) => { if (e.target.value !== cell.avatarSoundUrl) onField({ avatarSoundUrl: e.target.value }); }}
+                placeholder="https://.../voice.mp3"
+                className="kf-select w-full font-mono text-[11px]"
+              />
+            )}
+          </div>
         </div>
 
         <div className="mx-4 w-px flex-none bg-border" />
@@ -1472,49 +2294,32 @@ function AvatarCell({
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <TypeTabs active="avatar" onChange={onConvert} />
-            <Field label="Avatar ID">
-              <input
-                defaultValue={cell.avatarId}
-                onBlur={(e) => { if (e.target.value !== cell.avatarId) onField({ avatarId: e.target.value }); }}
-                placeholder="e.g. avatar_anime_girl_01"
-                className="kf-select w-[160px] font-mono text-[11px]"
-              />
+            <Field label="Mode">
+              <SegmentedGroup>
+                {KLING_AVATAR_MODE_OPTIONS.map((m) => (
+                  <SegmentedButton
+                    key={m.value}
+                    active={cell.mode === m.value}
+                    title={m.note}
+                    onClick={() => onField({ mode: m.value as KlingMotionMode })}
+                  >
+                    {m.value.toUpperCase()}
+                  </SegmentedButton>
+                ))}
+              </SegmentedGroup>
             </Field>
-            <Field label="Avatar Type">
-              <select defaultValue={cell.avatarType} onChange={(e) => onField({ avatarType: e.target.value as "2d" | "3d" })} className="kf-select">
-                <option value="2d">2D</option>
-                <option value="3d">3D</option>
-              </select>
-            </Field>
-            <Field label="Voice">
-              <select defaultValue={cell.voiceId} onChange={(e) => onField({ voiceId: e.target.value })} className="kf-select w-[170px]">
-                <option value="">— chọn giọng —</option>
-                {VOICE_PRESETS.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Language">
-              <select defaultValue={cell.voiceLanguage} onChange={(e) => onField({ voiceLanguage: e.target.value })} className="kf-select">
-                {VOICE_LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Speed">
-              <input
-                type="number" min="0.8" max="2.0" step="0.1"
-                defaultValue={cell.voiceSpeed}
-                onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v !== cell.voiceSpeed) onField({ voiceSpeed: v }); }}
-                className="kf-select w-[64px]"
-              />
-            </Field>
+            <span className="mono rounded-md bg-yellow/10 px-2 py-1 text-[10px] text-yellow/80">Avatar image2video</span>
+            <span className="mono rounded-md bg-white/5 px-2 py-1 text-[10px] text-muted">Audio 2-300s · image 1:2.5~2.5:1</span>
           </div>
           <textarea
-            defaultValue={cell.avatarText}
-            onBlur={(e) => { if (e.target.value !== cell.avatarText) onField({ avatarText: e.target.value }); }}
-            placeholder="Văn bản avatar sẽ nói…"
+            defaultValue={avatarPrompt}
+            onBlur={(e) => { if (e.target.value !== avatarPrompt) onField({ prompt: e.target.value, avatarText: e.target.value }); }}
+            placeholder="Prompt biểu cảm, hành động, camera movement…"
             className="min-h-[64px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
           />
           {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
-          {(!cell.avatarId || !cell.voiceId || !cell.avatarText) && (
-            <p className="text-[10px] text-yellow/70">Cần điền Avatar ID, Voice và Văn bản để generate.</p>
+          {(!cell.startAssetId || !hasAudio) && (
+            <p className="text-[10px] text-yellow/70">Cần chọn ảnh Avatar và audio_id/sound_file để generate.</p>
           )}
         </div>
 
@@ -1523,43 +2328,22 @@ function AvatarCell({
           <button
             onClick={onGenerate}
             disabled={!canGenerate}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : !canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${
+              !canGenerate
+                ? "cursor-not-allowed bg-surface-2 text-muted"
+                : generating
+                  ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110"
+                  : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"
+            }`}
           >
-            {busy ? genLabel(cell.status) : !canGenerate ? "Thiếu thông tin" : genLabel(cell.status)}
+            {!canGenerate ? "Thiếu thông tin" : activeSlotText(cell)}
           </button>
           <button onClick={onDup} className="rounded-lg border border-accent/50 bg-accent/15 px-1.5 py-2 text-[10.5px] font-semibold text-accent-soft hover:bg-accent/25">+ Biến thể</button>
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* result — 3 slots */}
-        <div className="flex w-36 flex-none flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface-2 p-2">
-          {cell.resultUrls.map((url, i) => {
-            const isGenerating = !url && cell.targetSlot === i && (cell.status === "queued" || cell.status === "submitted" || cell.status === "processing");
-            return (
-              <div key={i}>
-                {url ? (
-                  <button onClick={() => onPreview(url)} className="flex w-full items-center gap-1.5 rounded-lg border border-ok/30 bg-ok/5 px-2 py-1.5 text-[11px] text-ok hover:bg-ok/10">
-                    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" className="flex-none"><path d="M5 3l14 9-14 9z" /></svg>
-                    <span className="truncate">Output {i + 1}</span>
-                  </button>
-                ) : isGenerating ? (
-                  <div className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/5 px-2 py-1.5 text-[10px] text-accent-soft">
-                    <span>⟳</span>
-                    <span className="truncate">{cell.status === "queued" ? "Đợi..." : "Đang tạo"}</span>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">○ Slot {i + 1}</div>
-                )}
-              </div>
-            );
-          })}
-          {cell.status === "failed" && cell.error && (
-            <p className="mt-0.5 line-clamp-2 text-[9px] text-bad">{cell.error}</p>
-          )}
-          {!cell.resultUrls.some(Boolean) && cell.status !== "failed" && (
-            <p className={`mono mt-0.5 text-center text-[9px] ${st.c}`}>{st.t}</p>
-          )}
-        </div>
+        {/* result slots */}
+        <OutputSlotsPanel cell={cell} onPreview={onPreview} />
       </div>
     </div>
   );
@@ -1574,12 +2358,96 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function SegmentedGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface-2">
+      {children}
+    </div>
+  );
+}
+
+function SegmentedButton({
+  active,
+  disabled,
+  title,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={`min-w-[44px] border-r border-border px-2 text-[11px] font-semibold transition last:border-r-0 ${
+        active
+          ? "bg-accent text-[#04212c]"
+          : disabled
+            ? "cursor-not-allowed bg-surface text-muted/35"
+            : "text-muted hover:bg-accent/10 hover:text-accent-soft"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FeatureToggle({
+  label,
+  active,
+  disabled,
+  title,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={`mt-4 h-9 rounded-lg border px-3 text-[11px] font-semibold transition ${
+        active
+          ? "border-accent bg-accent/15 text-accent-soft"
+          : disabled
+            ? "cursor-not-allowed border-border bg-surface text-muted/35"
+            : "border-border bg-surface-2 text-muted hover:border-accent hover:text-accent-soft"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 // ── Preview Sidebar ───────────────────────────────────────────────────────────
-function PreviewSidebar({ url, open, onToggle }: { url: string | null; open: boolean; onToggle: () => void }) {
+function PreviewSidebar({
+  videos,
+  open,
+  onToggle,
+  onRemove,
+  onClear,
+}: {
+  videos: PreviewVideo[];
+  open: boolean;
+  onToggle: () => void;
+  onRemove: (id: string) => void;
+  onClear: () => void;
+}) {
   return (
     <div
       className="relative flex flex-none overflow-hidden border-l border-border bg-surface/40 transition-[width] duration-200"
-      style={{ width: open ? 320 : 36 }}
+      style={{ width: open ? 420 : 36 }}
     >
       {/* Narrow strip — always visible */}
       <div className="flex w-9 flex-none flex-col items-center gap-3 border-r border-border bg-surface/60 py-3">
@@ -1595,8 +2463,10 @@ function PreviewSidebar({ url, open, onToggle }: { url: string | null; open: boo
             <path d="M15 6l-6 6 6 6" />
           </svg>
         </button>
-        {url && (
-          <span className="h-1.5 w-1.5 rounded-full bg-ok" style={{ boxShadow: "0 0 6px rgb(var(--color-ok)/0.8)" }} title="Video sẵn sàng" />
+        {videos.length > 0 && (
+          <span className="grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-ok px-1 text-[9px] font-bold text-[#04241a]" title={`${videos.length} video đang preview`}>
+            {videos.length}
+          </span>
         )}
         {!open && (
           <span
@@ -1612,25 +2482,22 @@ function PreviewSidebar({ url, open, onToggle }: { url: string | null; open: boo
       {open && (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="mono text-[11px] font-semibold text-accent-soft">Preview</span>
-            {url && (
-              <a href={url} target="_blank" rel="noreferrer" className="mono text-[10px] text-muted hover:text-white" title="Mở trong tab mới">
-                ↗
-              </a>
+            <span className="mono text-[11px] font-semibold text-accent-soft">Preview {videos.length > 0 ? `(${videos.length})` : ""}</span>
+            {videos.length > 0 && (
+              <button onClick={onClear} className="mono text-[10px] text-muted hover:text-bad" title="Xoá tất cả preview">
+                Xoá tất cả
+              </button>
             )}
           </div>
-          <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto p-3">
-            {url ? (
-              <video
-                key={url}
-                src={url}
-                controls
-                autoPlay
-                className="w-full rounded-lg border border-border"
-                style={{ maxHeight: "calc(100vh - 180px)" }}
-              />
+          <div className="flex flex-1 flex-col overflow-y-auto p-3">
+            {videos.length > 0 ? (
+              <div className="space-y-3">
+                {videos.map((v) => (
+                  <PreviewVideoCard key={v.id} video={v} onRemove={() => onRemove(v.id)} />
+                ))}
+              </div>
             ) : (
-              <div className="flex flex-col items-center gap-3 text-center text-muted">
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted">
                 <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" strokeWidth="1.2">
                   <rect x="3" y="5" width="18" height="14" rx="2" />
                   <path d="M10 10l5 3-5 3z" />
@@ -1643,6 +2510,63 @@ function PreviewSidebar({ url, open, onToggle }: { url: string | null; open: boo
       )}
     </div>
   );
+}
+
+function PreviewVideoCard({ video, onRemove }: { video: PreviewVideo; onRemove: () => void }) {
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const aspectValue = size ? size.width / size.height : 16 / 9;
+  const aspectRatio = size ? `${size.width} / ${size.height}` : "16 / 9";
+  const maxWidth =
+    aspectValue < 0.82
+      ? "min(100%, 280px)"
+      : aspectValue < 1.08
+        ? "min(100%, 340px)"
+        : "100%";
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-surface-2">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-2.5 py-2">
+        <div className="min-w-0">
+          <span className="block truncate text-xs font-medium text-white">{video.label}</span>
+          {size && <span className="mono mt-0.5 block text-[9px] text-muted">{ratioLabel(size.width, size.height)}</span>}
+        </div>
+        <div className="flex flex-none items-center gap-2">
+          <a href={video.url} target="_blank" rel="noreferrer" className="mono text-[10px] text-muted hover:text-white" title="Mở trong tab mới">
+            ↗
+          </a>
+          <button onClick={onRemove} className="mono text-[10px] text-muted hover:text-bad" title="Gỡ khỏi preview">
+            ✕
+          </button>
+        </div>
+      </div>
+      <div className="flex justify-center bg-black/40 p-2">
+        <div className="w-full overflow-hidden rounded-lg bg-black" style={{ aspectRatio, maxWidth }}>
+          <video
+            src={video.url}
+            controls
+            autoPlay
+            onLoadedMetadata={(e) => {
+              const { videoWidth, videoHeight } = e.currentTarget;
+              if (videoWidth > 0 && videoHeight > 0) setSize({ width: videoWidth, height: videoHeight });
+            }}
+            className="h-full w-full bg-black object-contain"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ratioLabel(width: number, height: number) {
+  const divisor = gcd(width, height);
+  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+}
+
+function gcd(a: number, b: number): number {
+  let x = Math.abs(Math.round(a));
+  let y = Math.abs(Math.round(b));
+  while (y) [x, y] = [y, x % y];
+  return x || 1;
 }
 
 // ── TrimModal ─────────────────────────────────────────────────────────────────

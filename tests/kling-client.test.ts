@@ -81,6 +81,29 @@ describe("KlingClient.createMotionControl", () => {
   });
 });
 
+describe("KlingClient.createAvatar", () => {
+  it("POSTs to the avatar image2video endpoint with correct snake_case body", async () => {
+    const calls: Call[] = [];
+    const c = client(
+      fakeFetch({ ok: true, status: 200, json: { code: 0, data: { task_id: "av1", task_status: "submitted" } } }, calls),
+    );
+    await c.createAvatar({
+      image: "IMG_B64",
+      soundFile: "AUD_B64",
+      prompt: "smile",
+      mode: "std",
+    });
+    expect(calls[0].url).toBe("https://api.example.com/v1/videos/avatar/image2video");
+    expect(calls[0].method).toBe("POST");
+    expect(JSON.parse(calls[0].body!)).toEqual({
+      image: "IMG_B64",
+      sound_file: "AUD_B64",
+      prompt: "smile",
+      mode: "std",
+    });
+  });
+});
+
 describe("KlingClient.getTask", () => {
   it("GETs the task by kind + id and parses the result url", async () => {
     const calls: Call[] = [];
@@ -94,6 +117,18 @@ describe("KlingClient.getTask", () => {
     expect(calls[0].method).toBe("GET");
     expect(calls[0].url).toBe("https://api.example.com/v1/videos/image2video/t1");
     expect(task.videoUrl).toBe("https://cdn/c.mp4");
+  });
+
+  it("GETs avatar tasks from the avatar image2video path", async () => {
+    const calls: Call[] = [];
+    const c = client(
+      fakeFetch(
+        { ok: true, status: 200, json: { code: 0, data: { task_id: "a1", task_status: "processing" } } },
+        calls,
+      ),
+    );
+    await c.getTask("avatar", "a1");
+    expect(calls[0].url).toBe("https://api.example.com/v1/videos/avatar/image2video/a1");
   });
 });
 

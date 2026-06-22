@@ -5,7 +5,7 @@ import { safeExt, mimeForFilename } from "@/lib/uploads";
 import type { CurrentUser } from "@/lib/session";
 
 export function libraryRoot(): string {
-  return process.env.LIBRARY_DIR ?? path.join(process.cwd(), "library");
+  return process.env.LIBRARY_DIR || path.join(process.cwd(), "library");
 }
 
 export async function listLibraryVideos() {
@@ -30,9 +30,22 @@ export async function createLibraryVideo(
   return db.libraryVideo.update({ where: { id: record.id }, data: { storedPath: stored } });
 }
 
-export async function deleteLibraryVideo(actor: CurrentUser, id: string) {
+export async function deleteLibraryVideos(actor: CurrentUser, ids: string[]) {
   if (actor.role !== "super_admin") throw new Error("Forbidden");
-  const record = await db.libraryVideo.findUnique({ where: { id }, select: { storedPath: true } });
-  await db.libraryVideo.delete({ where: { id } });
-  if (record?.storedPath) await unlink(record.storedPath).catch(() => {});
+  const cleanIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (cleanIds.length === 0) return 0;
+
+  const records = await db.libraryVideo.findMany({
+    where: { id: { in: cleanIds } },
+    select: { id: true, storedPath: true },
+  });
+  if (records.length === 0) return 0;
+
+  await db.libraryVideo.deleteMany({ where: { id: { in: records.map((r) => r.id) } } });
+  await Promise.all(records.map((r) => unlink(r.storedPath).catch(() => {})));
+  return records.length;
+}
+
+export async function deleteLibraryVideo(actor: CurrentUser, id: string) {
+  return deleteLibraryVideos(actor, [id]);
 }

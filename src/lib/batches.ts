@@ -15,7 +15,7 @@ export async function listBatches(actor: CurrentUser, projectId: string) {
   return db.batch.findMany({
     where: { projectId },
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { jobs: true } } },
+    include: { _count: { select: { jobs: { where: { parentJobId: null } } } } },
   });
 }
 

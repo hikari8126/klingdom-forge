@@ -120,6 +120,8 @@ model Job {
   params          Json
   klingAccountId  String?
   klingTaskId     String?
+  parentJobId     String?
+  slotIndex       Int?
   resultUrl       String?
   resultExpiresAt DateTime?
   error           String?
@@ -129,9 +131,12 @@ model Job {
   project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   batch           Batch?        @relation(fields: [batchId], references: [id], onDelete: SetNull)
   klingAccount    KlingAccount? @relation(fields: [klingAccountId], references: [id])
+  parentJob       Job?          @relation("JobSlotRuns", fields: [parentJobId], references: [id], onDelete: Cascade)
+  slotRuns        Job[]         @relation("JobSlotRuns")
 
   @@index([status])
   @@index([projectId])
+  @@index([parentJobId])
 }
 
 model Asset {
