@@ -65,6 +65,7 @@ type Props = {
   workspaceName: string;
   userName: string;
   userFullName: string;
+  userRole: string;
   hasAccount: boolean;
   workerOnline: boolean;
   projects: { id: string; name: string }[];
@@ -615,26 +616,43 @@ export default function Studio(props: Props) {
                                   ))}
                                   {videoAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có video.</p>}
                                 </div>
-                                {props.libraryVideos.length > 0 && (
-                                  <div className="mt-2 border-t border-border pt-2">
-                                    <span className="mono text-[10px] text-muted">Thư viện mẫu</span>
-                                    <div className="mt-1 flex flex-col gap-1">
-                                      {props.libraryVideos.map((v) => (
-                                        <div
-                                          key={v.id}
-                                          draggable
-                                          onDragStart={(e) => e.dataTransfer.setData("text/library-video", v.id)}
-                                          className="flex cursor-grab items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 p-1.5 hover:border-accent-soft"
+                                <div className="mt-2 border-t border-border pt-2">
+                                    <div className="mb-1 flex items-center justify-between">
+                                      <span className="mono text-[10px] text-muted">Thư viện mẫu</span>
+                                      {props.userRole === "super_admin" && (
+                                        <button
+                                          onClick={() => router.push("/admin/library")}
+                                          className="rounded px-1.5 py-0.5 text-[9px] text-muted hover:text-accent-soft"
+                                          title="Quản lý thư viện (super admin)"
                                         >
-                                          <span className="grid h-6 w-6 flex-none place-items-center rounded bg-accent/15 text-accent-soft">
-                                            <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                                          </span>
-                                          <span className="truncate text-xs text-accent-soft">{v.name}</span>
-                                        </div>
-                                      ))}
+                                          + Quản lý
+                                        </button>
+                                      )}
                                     </div>
+                                    {props.libraryVideos.length > 0 ? (
+                                      <div className="flex flex-col gap-1">
+                                        {props.libraryVideos.map((v) => (
+                                          <div
+                                            key={v.id}
+                                            draggable
+                                            onDragStart={(e) => e.dataTransfer.setData("text/library-video", v.id)}
+                                            className="flex cursor-grab items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 p-1.5 hover:border-accent-soft"
+                                          >
+                                            <span className="grid h-6 w-6 flex-none place-items-center rounded bg-accent/15 text-accent-soft">
+                                              <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                                            </span>
+                                            <span className="truncate text-xs text-accent-soft">{v.name}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-center text-[10px] text-muted">
+                                        {props.userRole === "super_admin" ? (
+                                          <button onClick={() => router.push("/admin/library")} className="underline hover:text-accent-soft">Upload video mẫu đầu tiên →</button>
+                                        ) : "Thư viện trống."}
+                                      </p>
+                                    )}
                                   </div>
-                                )}
                               </div>
                             </>
                           )}
