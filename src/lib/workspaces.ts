@@ -40,6 +40,56 @@ export async function listWorkspacesForUser(actor: CurrentUser) {
   });
 }
 
+/** Workspaces the actor can see, each with project & member counts — for the cards grid. */
+export async function listWorkspaceCardsForUser(actor: CurrentUser) {
+  const where =
+    actor.role === "super_admin"
+      ? {}
+      : { members: { some: { userId: actor.id } } };
+  return db.workspace.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { projects: true, members: true } } },
+  });
+}
+
+/** The actor's most-recently-created workspace id, or null if they have none. */
+export async function getLatestWorkspaceId(actor: CurrentUser): Promise<string | null> {
+  const where =
+    actor.role === "super_admin"
+      ? {}
+      : { members: { some: { userId: actor.id } } };
+  const w = await db.workspace.findFirst({
+    where,
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  return w?.id ?? null;
+}
+
+/** Studio href: the workspace the actor most recently opened (if still accessible),
+ *  else their most-recently-created workspace, else the workspaces list. */
+export async function getLatestStudioHref(actor: CurrentUser): Promise<string> {
+  const u = await db.user.findUnique({ where: { id: actor.id }, select: { lastWorkspaceId: true } });
+  if (u?.lastWorkspaceId) {
+    const accessible = await db.workspace.findFirst({
+      where:
+        actor.role === "super_admin"
+          ? { id: u.lastWorkspaceId }
+          : { id: u.lastWorkspaceId, members: { some: { userId: actor.id } } },
+      select: { id: true },
+    });
+    if (accessible) return `/workspaces/${accessible.id}/studio`;
+  }
+  const id = await getLatestWorkspaceId(actor);
+  return id ? `/workspaces/${id}/studio` : "/workspaces";
+}
+
+/** Record that the actor opened a workspace (for the "last opened" Studio shortcut). */
+export async function recordWorkspaceOpened(actor: CurrentUser, workspaceId: string): Promise<void> {
+  await db.user.update({ where: { id: actor.id }, data: { lastWorkspaceId: workspaceId } });
+}
+
 /** Rename a workspace. Manager or super_admin only. */
 export async function renameWorkspace(actor: CurrentUser, workspaceId: string, name: string) {
   const membership = await membershipFor(workspaceId, actor.id);

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { createAsset } from "@/lib/assets";
+import { createAsset, deleteAsset } from "@/lib/assets";
 import { createProject, renameProject, deleteProject } from "@/lib/projects";
 import { createBatch, renameBatch, deleteBatch } from "@/lib/batches";
 import {
@@ -49,6 +49,12 @@ export async function renameProjectAction(workspaceId: string, projectId: string
 export async function deleteProjectAction(workspaceId: string, projectId: string) {
   const actor = await requireUser();
   await deleteProject(actor, projectId);
+  rv(workspaceId);
+}
+
+export async function deleteAssetAction(workspaceId: string, assetId: string) {
+  const actor = await requireUser();
+  await deleteAsset(actor, assetId);
   rv(workspaceId);
 }
 

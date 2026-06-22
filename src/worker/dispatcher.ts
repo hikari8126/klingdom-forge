@@ -1,7 +1,7 @@
 import { createKlingClient, classifyKlingError, KlingError, type AvatarParams, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
 import { fileToBase64 } from "@/lib/uploads";
 import { pickAccount, type AccountLoad } from "@/lib/queue-policy";
-import { listEnabledAccountsDecrypted, setAccountEnabled } from "@/lib/kling-accounts";
+import { listEnabledAccountsDecrypted, setAccountEnabled, getAssignedAccountForProject } from "@/lib/kling-accounts";
 import { getWorkspaceKeyForProject } from "@/lib/workspaces";
 import { canUseKlingNativeAudio, getKlingImageCapabilities, sanitizeKlingAvatarSettings, sanitizeKlingImageSettings, sanitizeKlingMotionSettings, type KlingVideoRatio } from "@/lib/kling-options";
 import {
@@ -119,7 +119,34 @@ export async function dispatchOnce(): Promise<boolean> {
   // Row vanished between claim and read (e.g. project/batch cascade-deleted).
   if (!job) return true;
 
-  // Prefer workspace-level API key over global pool.
+  // Highest priority: a Kling key explicitly assigned to this job's workspace.
+  const assigned = await getAssignedAccountForProject(job.projectId);
+  if (assigned) {
+    const client = createKlingClient({ accessKey: assigned.accessKey, secretKey: assigned.secretKey });
+    try {
+      const task = await buildTask(client, job);
+      await attachAccountAndTask(jobId, assigned.id, task.taskId);
+      return true;
+    } catch (e) {
+      const baseMsg = e instanceof Error ? e.message : String(e);
+      const code = e instanceof KlingError && typeof e.code === "number" ? e.code : undefined;
+      const msg = code !== undefined ? `${baseMsg} [Kling ${code}]` : baseMsg;
+      const cls = classifyKlingError(e);
+      if (cls === "account") {
+        await setAccountEnabled(SYSTEM_ACTOR, assigned.id, false);
+        await requeueJob(jobId, `Khoá/Account "${assigned.label}" lỗi: ${msg}`);
+      } else if (cls === "fatal") {
+        await markFailed(jobId, msg);
+      } else if ((job.attempts ?? 0) + 1 >= MAX_ATTEMPTS) {
+        await markFailed(jobId, `Đã thử ${MAX_ATTEMPTS} lần, vẫn lỗi: ${msg}`);
+      } else {
+        await requeueJob(jobId, msg);
+      }
+      return true;
+    }
+  }
+
+  // Next: a workspace-level raw API key (legacy free-text).
   const wsKey = await getWorkspaceKeyForProject(job.projectId);
 
   if (wsKey) {

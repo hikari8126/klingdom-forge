@@ -8,12 +8,13 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage() {
   if (await getCurrentUser()) redirect("/");
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-6">
-      <div className="w-full max-w-sm text-center">
+    <main className="relative flex min-h-screen flex-col items-center justify-center px-6">
+      <div className="pointer-events-none absolute left-1/2 top-1/3 h-72 w-72 -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgb(var(--color-accent)/.28),transparent_70%)] blur-2xl" />
+      <div className="relative w-full max-w-sm animate-fade-up text-center">
         <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-accent-soft to-accent shadow-glow-accent">
           <svg viewBox="0 0 24 24" width="32" height="32" fill="#04212c"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM15 15l5 3-5 3z" /></svg>
         </div>
-        <h1 className="text-3xl font-semibold tracking-tight">KlingDom Forge</h1>
+        <h1 className="font-heading text-3xl font-semibold tracking-tight">KlingDom Forge</h1>
         <p className="mx-auto mt-2 max-w-xs text-sm text-muted">
           Studio dựng video AI hàng loạt — đăng nhập bằng tài khoản Google công ty.
         </p>
@@ -37,6 +38,11 @@ export default async function LoginPage() {
           </form>
           <p className="mt-3 text-xs text-muted">Chỉ tài khoản @crossian.com được phép truy cập.</p>
         </Card>
+
+        <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-ok/40 px-3 py-1.5 mono text-ok">
+          <span className="h-1.5 w-1.5 rounded-full bg-ok shadow-[0_0_8px_rgb(var(--color-ok))]" />
+          Hệ thống đang hoạt động
+        </div>
       </div>
     </main>
   );
