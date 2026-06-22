@@ -1,4 +1,4 @@
-import { createKlingClient, classifyKlingError, KlingError, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
+import { createKlingClient, classifyKlingError, KlingError, type AvatarParams, type Image2VideoParams, type LipSyncParams, type MotionControlParams } from "@/lib/kling";
 import { fileToBase64 } from "@/lib/uploads";
 import { pickAccount, type AccountLoad } from "@/lib/queue-policy";
 import { listEnabledAccountsDecrypted, setAccountEnabled } from "@/lib/kling-accounts";
@@ -58,6 +58,24 @@ async function buildTask(client: ReturnType<typeof createKlingClient>, job: NonN
       keepOriginalSound: p.keepOriginalSound,
     };
     return client.createMotionControl(params);
+  } else if (job.type === "avatar") {
+    const p = job.params as {
+      avatarId?: string;
+      avatarType?: "2d" | "3d";
+      voiceId?: string;
+      voiceLanguage?: string;
+      voiceSpeed?: number;
+      avatarText?: string;
+    };
+    const params: AvatarParams = {
+      avatarId: p.avatarId ?? "",
+      avatarType: p.avatarType,
+      voiceId: p.voiceId ?? "",
+      voiceLanguage: p.voiceLanguage ?? "en",
+      voiceSpeed: p.voiceSpeed,
+      text: p.avatarText ?? "",
+    };
+    return client.createVirtualHuman(params);
   } else {
     return client.createLipSync(job.params as unknown as LipSyncParams);
   }

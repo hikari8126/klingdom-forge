@@ -73,6 +73,7 @@ enum JobType {
   image2video
   lipsync
   motioncontrol
+  avatar
 }
 
 enum JobStatus {
@@ -100,11 +101,13 @@ model Batch {
   id          String   @id @default(cuid())
   projectId   String
   createdById String
+  name        String   @default("Batch")
   source      String
   total       Int      @default(0)
   createdAt   DateTime @default(now())
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   jobs        Job[]
+  assets      Asset[]
 }
 
 model Job {
@@ -134,13 +137,16 @@ model Job {
 model Asset {
   id         String   @id @default(cuid())
   projectId  String
+  batchId    String?
   filename   String
   storedPath String
   mimeType   String?
   createdAt  DateTime @default(now())
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  batch      Batch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
+  @@index([batchId])
 }
 
 model WorkerStatus {

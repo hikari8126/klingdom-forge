@@ -34,7 +34,18 @@ export async function createProject(
   });
 }
 
-/** Deletes a project. super_admin or the workspace manager. */
+/** Rename a project. super_admin or any workspace member. */
+export async function renameProject(actor: CurrentUser, projectId: string, name: string) {
+  const project = await db.project.findUnique({ where: { id: projectId } });
+  if (!project) throw new Error("Project not found");
+  const membership = await membershipFor(project.workspaceId, actor.id);
+  if (!canCreateProject(actor.role, membership)) throw new ForbiddenError();
+  const clean = name.trim();
+  if (!clean) throw new Error("Tên project không được để trống");
+  return db.project.update({ where: { id: projectId }, data: { name: clean } });
+}
+
+/** Deletes a project. super_admin or any workspace member. */
 export async function deleteProject(actor: CurrentUser, projectId: string) {
   const project = await db.project.findUnique({ where: { id: projectId } });
   if (!project) throw new Error("Project not found");

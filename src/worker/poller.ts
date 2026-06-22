@@ -26,7 +26,7 @@ export async function pollOnce(): Promise<void> {
       client = createKlingClient({ accessKey: wsKey.accessKey });
     }
 
-    const kind = job.type === "image2video" ? "image2video" : job.type === "motioncontrol" ? "motion-control" : "lip-sync";
+    const kind = job.type === "image2video" ? "image2video" : job.type === "motioncontrol" ? "motion-control" : job.type === "avatar" ? "virtual-human" : "lip-sync";
     try {
       const task = await client.getTask(kind, job.klingTaskId);
       if (task.status === "succeed" && task.videoUrl) {
