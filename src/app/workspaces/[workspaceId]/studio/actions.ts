@@ -20,6 +20,10 @@ import {
   convertCellType,
 } from "@/lib/cells";
 import { assertVideoSize } from "@/lib/uploads";
+import { assetPath } from "@/lib/assets";
+import { trimVideo } from "@/lib/video";
+import path from "node:path";
+import { db } from "@/lib/db";
 
 function rv(workspaceId: string) {
   revalidatePath(`/workspaces/${workspaceId}/studio`);
@@ -249,4 +253,27 @@ export async function updateMultipleCellsModeAction(
     }
   }
   rv(workspaceId);
+}
+
+// ── Video trim ────────────────────────────────────────────────────────────────
+
+export async function trimVideoAction(
+  workspaceId: string,
+  projectId: string,
+  assetId: string,
+  startSec: number,
+  endSec: number,
+  batchId?: string,
+): Promise<string> {
+  const actor = await requireUser();
+  const storedPath = await assetPath(assetId);
+  if (!storedPath) throw new Error("Asset không tồn tại");
+  const original = await db.asset.findUnique({ where: { id: assetId }, select: { filename: true } });
+  const base = path.basename(original?.filename ?? "video", path.extname(original?.filename ?? ""));
+  const newFilename = `${base}_cut_${Math.round(startSec)}-${Math.round(endSec)}s.mp4`;
+  const buf = await trimVideo(storedPath, startSec, endSec);
+  assertVideoSize(buf, newFilename);
+  const newAsset = await createAsset(actor, projectId, newFilename, buf, batchId);
+  rv(workspaceId);
+  return newAsset.id;
 }

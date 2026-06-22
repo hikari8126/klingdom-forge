@@ -28,6 +28,7 @@ import {
   deleteMultipleCellsAction,
   generateMultipleCellsAction,
   updateMultipleCellsModeAction,
+  trimVideoAction,
 } from "./actions";
 
 export type CellView = {
@@ -180,6 +181,7 @@ export default function Studio(props: Props) {
   const [confirmOverwrite, setConfirmOverwrite] = useState<{ jobId: string; label: string } | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const [trimModal, setTrimModal] = useState<{ assetId: string; filename: string } | null>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
 
@@ -440,9 +442,25 @@ export default function Studio(props: Props) {
           <div className="border-b border-border p-4">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="mono text-muted">Projects</h2>
-              <button onClick={() => setSettingsOpen(true)} title="Cài đặt" className="grid h-7 w-7 place-items-center rounded-lg border border-border text-muted transition hover:border-accent hover:text-accent-soft">
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3" /><path d="M19.4 13a7.8 7.8 0 000-2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 00-1.7-1l-.4-2.6H9.7l-.4 2.6a7.6 7.6 0 00-1.7 1l-2.3-1-2 3.4 2 1.5a7.8 7.8 0 000 2l-2 1.5 2 3.4 2.3-1c.5.4 1.1.7 1.7 1l.4 2.6h4.6l.4-2.6c.6-.3 1.2-.6 1.7-1l2.3 1 2-3.4z" /></svg>
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCollapsedProjects(new Set(props.projects.map((p) => p.id)))}
+                  title="Thu gọn tất cả"
+                  className="grid h-6 w-6 place-items-center rounded text-muted hover:text-accent-soft"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 9h16M4 15h16" /></svg>
+                </button>
+                <button
+                  onClick={() => setCollapsedProjects(new Set())}
+                  title="Mở rộng tất cả"
+                  className="grid h-6 w-6 place-items-center rounded text-muted hover:text-accent-soft"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+                </button>
+                <button onClick={() => setSettingsOpen(true)} title="Cài đặt" className="grid h-7 w-7 place-items-center rounded-lg border border-border text-muted transition hover:border-accent hover:text-accent-soft">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3" /><path d="M19.4 13a7.8 7.8 0 000-2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 00-1.7-1l-.4-2.6H9.7l-.4 2.6a7.6 7.6 0 00-1.7 1l-2.3-1-2 3.4 2 1.5a7.8 7.8 0 000 2l-2 1.5 2 3.4 2.3-1c.5.4 1.1.7 1.7 1l.4 2.6h4.6l.4-2.6c.6-.3 1.2-.6 1.7-1l2.3 1 2-3.4z" /></svg>
+                </button>
+              </div>
             </div>
             <input
               value={query}
@@ -607,52 +625,24 @@ export default function Studio(props: Props) {
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   {videoAssets.map((a) => (
-                                    <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent-soft">
-                                      <span className="grid h-6 w-6 flex-none place-items-center rounded bg-white/5 text-accent-soft">
-                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                                      </span>
-                                      <span className="truncate text-xs text-white">{a.filename}</span>
+                                    <div key={a.id} className="group/vid flex items-center gap-1 rounded-lg border border-border p-1 hover:border-accent-soft">
+                                      <div draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex min-w-0 flex-1 cursor-grab items-center gap-1.5">
+                                        <span className="grid h-6 w-6 flex-none place-items-center rounded bg-white/5 text-accent-soft">
+                                          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                                        </span>
+                                        <span className="truncate text-xs text-white">{a.filename}</span>
+                                      </div>
+                                      <button
+                                        onClick={() => setTrimModal({ assetId: a.id, filename: a.filename })}
+                                        className="hidden h-6 w-6 flex-none items-center justify-center rounded text-muted hover:text-accent-soft group-hover/vid:flex"
+                                        title="Cắt video"
+                                      >
+                                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/></svg>
+                                      </button>
                                     </div>
                                   ))}
                                   {videoAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có video.</p>}
                                 </div>
-                                <div className="mt-2 border-t border-border pt-2">
-                                    <div className="mb-1 flex items-center justify-between">
-                                      <span className="mono text-[10px] text-muted">Thư viện mẫu</span>
-                                      {props.userRole === "super_admin" && (
-                                        <button
-                                          onClick={() => router.push("/admin/library")}
-                                          className="rounded px-1.5 py-0.5 text-[9px] text-muted hover:text-accent-soft"
-                                          title="Quản lý thư viện (super admin)"
-                                        >
-                                          + Quản lý
-                                        </button>
-                                      )}
-                                    </div>
-                                    {props.libraryVideos.length > 0 ? (
-                                      <div className="flex flex-col gap-1">
-                                        {props.libraryVideos.map((v) => (
-                                          <div
-                                            key={v.id}
-                                            draggable
-                                            onDragStart={(e) => e.dataTransfer.setData("text/library-video", v.id)}
-                                            className="flex cursor-grab items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 p-1.5 hover:border-accent-soft"
-                                          >
-                                            <span className="grid h-6 w-6 flex-none place-items-center rounded bg-accent/15 text-accent-soft">
-                                              <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                                            </span>
-                                            <span className="truncate text-xs text-accent-soft">{v.name}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <p className="text-center text-[10px] text-muted">
-                                        {props.userRole === "super_admin" ? (
-                                          <button onClick={() => router.push("/admin/library")} className="underline hover:text-accent-soft">Upload video mẫu đầu tiên →</button>
-                                        ) : "Thư viện trống."}
-                                      </p>
-                                    )}
-                                  </div>
                               </div>
                             </>
                           )}
@@ -910,6 +900,19 @@ export default function Studio(props: Props) {
           </div>
         </div>
       )}
+
+      {/* ── Trim Modal ── */}
+      {trimModal && (
+        <TrimModal
+          assetId={trimModal.assetId}
+          filename={trimModal.filename}
+          workspaceId={props.workspaceId}
+          projectId={props.activeProjectId!}
+          batchId={props.activeBatchId ?? undefined}
+          onClose={() => setTrimModal(null)}
+          onDone={() => { setTrimModal(null); router.refresh(); }}
+        />
+      )}
     </div>
   );
 }
@@ -1127,7 +1130,6 @@ function MotionCell({
 }) {
   const [imgDropOver, setImgDropOver] = useState(false);
   const [vidDropOver, setVidDropOver] = useState(false);
-  const [libPickerOpen, setLibPickerOpen] = useState(false);
   const st = ST[cell.status];
   const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
 
@@ -1201,92 +1203,86 @@ function MotionCell({
         {selBox}
         {handle}
 
-        {/* ref image + ref video */}
-        <div className="relative ml-3 flex flex-none flex-col gap-2">
-          <span className="mono text-[9px] text-accent-soft">Ảnh tham chiếu</span>
-          <div
-            onDragOver={(e) => { e.preventDefault(); setImgDropOver(true); }}
-            onDragLeave={() => setImgDropOver(false)}
-            onDrop={(e) => {
-              e.preventDefault(); e.stopPropagation(); setImgDropOver(false);
-              const id = e.dataTransfer.getData("text/asset");
-              if (id && imageAssets.some((a) => a.id === id)) onField({ imageAssetId: id });
-            }}
-            className={`relative h-[130px] w-[100px] flex-none overflow-hidden rounded-lg border border-dashed ${imgDropOver ? "border-accent bg-accent/10" : "border-border"}`}
-          >
-            {cell.startAssetId ? (
-              <img src={assetUrl(cell.startAssetId)} alt="ref" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-1 text-center text-[10px] text-muted">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
-                Kéo ảnh vào
-              </div>
-            )}
+        {/* ref image + video section */}
+        <div className="ml-3 flex flex-none items-start gap-3">
+          {/* Ảnh tham chiếu */}
+          <div className="flex flex-col gap-1.5">
+            <span className="mono text-[9px] text-accent-soft">Ảnh tham chiếu</span>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setImgDropOver(true); }}
+              onDragLeave={() => setImgDropOver(false)}
+              onDrop={(e) => {
+                e.preventDefault(); e.stopPropagation(); setImgDropOver(false);
+                const id = e.dataTransfer.getData("text/asset");
+                if (id && imageAssets.some((a) => a.id === id)) onField({ imageAssetId: id });
+              }}
+              className={`h-[160px] w-[100px] overflow-hidden rounded-lg border border-dashed ${imgDropOver ? "border-accent bg-accent/10" : "border-border"}`}
+            >
+              {cell.startAssetId ? (
+                <img src={assetUrl(cell.startAssetId)} alt="ref" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-1 text-center text-[10px] text-muted">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
+                  Kéo ảnh vào
+                </div>
+              )}
+            </div>
           </div>
 
-          <span className="mono text-[9px] text-accent-soft">Video chuyển động</span>
-          <div
-            onDragOver={(e) => { e.preventDefault(); setVidDropOver(true); }}
-            onDragLeave={() => setVidDropOver(false)}
-            onDrop={(e) => {
-              e.preventDefault(); e.stopPropagation(); setVidDropOver(false);
-              const libId = e.dataTransfer.getData("text/library-video");
-              if (libId) { onField({ libraryVideoId: libId, videoAssetId: null }); return; }
-              const id = e.dataTransfer.getData("text/asset");
-              if (id && videoAssets.some((a) => a.id === id)) onField({ videoAssetId: id, libraryVideoId: null });
-            }}
-            className={`flex h-[100px] w-[100px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-[10px] ${vidDropOver ? "border-accent text-accent-soft bg-accent/10" : "border-border text-muted"}`}
-          >
-            {cell.libraryVideoId ? (
-              <div className="flex flex-col items-center gap-1 px-1">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" className="text-accent-soft"><path d="M5 3l14 9-14 9z" /></svg>
-                <span className="max-w-full truncate text-center text-accent-soft">
-                  {libraryVideos.find((v) => v.id === cell.libraryVideoId)?.name ?? "Thư viện"}
-                </span>
-                <span className="rounded bg-accent/15 px-1 text-[9px] text-accent-soft">Mẫu</span>
-              </div>
-            ) : cell.videoAssetId ? (
-              <div className="flex flex-col items-center gap-1">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M8 5V3M16 5V3M3 10h18" /></svg>
-                <span className="max-w-full truncate px-1 text-center text-accent-soft">
-                  {videoAssets.find((a) => a.id === cell.videoAssetId)?.filename ?? "video"}
-                </span>
-              </div>
-            ) : (
+          {/* Video chuyển động — library grid + custom drag */}
+          <div className="flex w-[220px] flex-col gap-1.5">
+            <span className="mono text-[9px] text-accent-soft">Video chuyển động</span>
+
+            {libraryVideos.length > 0 ? (
               <>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                Kéo video vào
+                <div className="grid grid-cols-3 gap-1" style={{ maxHeight: 112, overflowY: "auto" }}>
+                  {libraryVideos.map((v) => {
+                    const isSelected = cell.libraryVideoId === v.id;
+                    return (
+                      <button
+                        key={v.id}
+                        onClick={() => onField({ libraryVideoId: isSelected ? null : v.id, videoAssetId: null })}
+                        title={v.name}
+                        className={`relative overflow-hidden rounded border transition ${isSelected ? "border-accent ring-1 ring-accent/60" : "border-border hover:border-accent/50"}`}
+                        style={{ aspectRatio: "16/9" }}
+                      >
+                        <video src={`/api/library/${v.id}`} muted preload="metadata" className="h-full w-full object-cover bg-black" />
+                        {isSelected && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-accent/40">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="white" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 truncate bg-black/60 px-1 py-px text-[7px] leading-tight text-white">{v.name}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {cell.libraryVideoId && (
+                  <p className="mono truncate text-[9px] text-accent-soft">✓ {libraryVideos.find((v) => v.id === cell.libraryVideoId)?.name}</p>
+                )}
               </>
+            ) : (
+              <p className="text-[10px] italic text-muted">Thư viện trống.</p>
             )}
-          </div>
-          {libraryVideos.length > 0 && (
-            <button
-              onClick={() => setLibPickerOpen((o) => !o)}
-              className="w-full rounded-lg border border-accent/30 bg-accent/5 px-2 py-1 text-center text-[10px] text-accent-soft hover:border-accent hover:bg-accent/15"
+
+            <div
+              onDragOver={(e) => { e.preventDefault(); setVidDropOver(true); }}
+              onDragLeave={() => setVidDropOver(false)}
+              onDrop={(e) => {
+                e.preventDefault(); e.stopPropagation(); setVidDropOver(false);
+                const id = e.dataTransfer.getData("text/asset");
+                if (id && videoAssets.some((a) => a.id === id)) onField({ videoAssetId: id, libraryVideoId: null });
+              }}
+              className={`flex items-center gap-2 rounded-lg border border-dashed px-2 py-1.5 text-[10px] transition ${vidDropOver ? "border-accent bg-accent/10 text-accent-soft" : cell.videoAssetId ? "border-border text-accent-soft" : "border-border text-muted"}`}
             >
-              Chọn từ thư viện
-            </button>
-          )}
-          {libPickerOpen && (
-            <div className="absolute left-0 top-full z-40 mt-1 w-[220px] overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
-              <div className="border-b border-border px-3 py-2 text-[10px] font-semibold text-muted">Thư viện video mẫu</div>
-              <div className="max-h-[240px] overflow-y-auto p-1.5">
-                {libraryVideos.map((v) => (
-                  <button
-                    key={v.id}
-                    onClick={() => { onField({ libraryVideoId: v.id, videoAssetId: null }); setLibPickerOpen(false); }}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/5"
-                  >
-                    <video src={`/api/library/${v.id}`} muted preload="metadata" className="h-10 w-14 flex-none rounded object-cover bg-black" />
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-medium text-white">{v.name}</div>
-                      <div className="truncate text-[9px] text-muted">{v.filename}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" className="flex-none opacity-50"><path d="M5 3l14 9-14 9z" /></svg>
+              <span className="truncate">
+                {cell.videoAssetId
+                  ? videoAssets.find((a) => a.id === cell.videoAssetId)?.filename ?? "Video tuỳ chỉnh"
+                  : "Kéo video tuỳ chỉnh vào đây"}
+              </span>
             </div>
-          )}
+          </div>
         </div>
 
         <div className="mx-4 w-px flex-none bg-border" />
@@ -1645,6 +1641,145 @@ function PreviewSidebar({ url, open, onToggle }: { url: string | null; open: boo
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── TrimModal ─────────────────────────────────────────────────────────────────
+function TrimModal({
+  assetId,
+  filename,
+  workspaceId,
+  projectId,
+  batchId,
+  onClose,
+  onDone,
+}: {
+  assetId: string;
+  filename: string;
+  workspaceId: string;
+  projectId: string;
+  batchId?: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [duration, setDuration] = useState(0);
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function fmt(s: number) {
+    const m = Math.floor(s / 60);
+    const sec = (s % 60).toFixed(1).padStart(4, "0");
+    return `${m}:${sec}`;
+  }
+
+  function onLoaded() {
+    const d = videoRef.current?.duration ?? 0;
+    setDuration(d);
+    setTrimEnd(d);
+  }
+
+  function seek(t: number) {
+    if (videoRef.current) videoRef.current.currentTime = t;
+  }
+
+  async function handleTrim() {
+    if (trimEnd <= trimStart) { setError("Thời điểm kết thúc phải sau thời điểm bắt đầu."); return; }
+    if (trimEnd - trimStart < 0.5) { setError("Đoạn cắt tối thiểu 0.5 giây."); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      await trimVideoAction(workspaceId, projectId, assetId, trimStart, trimEnd, batchId);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi không xác định");
+      setBusy(false);
+    }
+  }
+
+  const pct = (v: number) => duration > 0 ? `${(v / duration) * 100}%` : "0%";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex w-[560px] max-w-[95vw] flex-col gap-4 rounded-2xl border border-border bg-surface p-5 shadow-2xl">
+        {/* header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-white">Cắt video</h2>
+            <p className="mt-0.5 truncate text-xs text-muted">{filename}</p>
+          </div>
+          <button onClick={onClose} className="grid h-7 w-7 place-items-center rounded-lg text-muted hover:text-white">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        {/* video preview */}
+        <video
+          ref={videoRef}
+          src={`/api/assets/${assetId}`}
+          onLoadedMetadata={onLoaded}
+          controls
+          className="w-full rounded-xl bg-black"
+          style={{ maxHeight: "240px" }}
+        />
+
+        {/* timeline bar */}
+        {duration > 0 && (
+          <div className="relative h-6 rounded-md bg-white/5">
+            <div
+              className="absolute inset-y-0 rounded-md bg-accent/30"
+              style={{ left: pct(trimStart), right: `calc(100% - ${pct(trimEnd)})` }}
+            />
+            <div className="absolute inset-y-0 left-0 right-0 flex items-center px-2 text-[10px] text-muted">
+              <span className="flex-1">{fmt(trimStart)}</span>
+              <span className="text-accent-soft">{fmt(trimEnd - trimStart)} selected</span>
+              <span className="flex-1 text-right">{fmt(trimEnd)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* sliders */}
+        {duration > 0 && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <span className="w-16 flex-none text-right text-xs text-muted">Bắt đầu</span>
+              <input
+                type="range" min={0} max={duration} step={0.1} value={trimStart}
+                onChange={(e) => { const v = Math.min(Number(e.target.value), trimEnd - 0.5); setTrimStart(v); seek(v); }}
+                className="flex-1 accent-accent-soft"
+              />
+              <span className="w-14 flex-none font-mono text-xs text-white">{fmt(trimStart)}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="w-16 flex-none text-right text-xs text-muted">Kết thúc</span>
+              <input
+                type="range" min={0} max={duration} step={0.1} value={trimEnd}
+                onChange={(e) => { const v = Math.max(Number(e.target.value), trimStart + 0.5); setTrimEnd(v); seek(v); }}
+                className="flex-1 accent-accent-soft"
+              />
+              <span className="w-14 flex-none font-mono text-xs text-white">{fmt(trimEnd)}</span>
+            </div>
+          </div>
+        )}
+
+        {error && <p className="rounded-lg bg-bad/10 px-3 py-2 text-sm text-bad">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm text-muted hover:text-white">
+            Huỷ
+          </button>
+          <button
+            onClick={handleTrim}
+            disabled={busy || duration === 0}
+            className="rounded-full bg-gradient-to-b from-[#7fe3a8] to-ok px-5 py-2 text-sm font-semibold text-[#04241a] shadow-[0_6px_20px_-6px_rgba(95,208,142,.6)] hover:brightness-110 disabled:opacity-40"
+          >
+            {busy ? "Đang cắt…" : "Cắt & Lưu"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
