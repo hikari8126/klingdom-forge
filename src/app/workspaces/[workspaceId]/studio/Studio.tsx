@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { signOutAction } from "@/app/auth-actions";
 import type { JobStatus } from "@prisma/client";
 import {
   uploadImagesAction,
@@ -38,6 +39,7 @@ export type CellView = {
   startAssetId: string;
   endAssetId: string | null;
   videoAssetId: string | null;
+  libraryVideoId: string | null;
   prompt: string;
   modelName: string;
   mode: string;
@@ -50,6 +52,8 @@ export type CellView = {
   voiceLanguage: string;
   voiceSpeed: number;
   avatarText: string;
+  resultUrls: (string | null)[];
+  targetSlot: number | null;
 };
 
 type AssetView = { id: string; filename: string; mimeType: string | null };
@@ -69,6 +73,7 @@ type Props = {
   activeBatches: BatchView[];
   assets: AssetView[];
   cells: CellView[];
+  libraryVideos: { id: string; name: string; filename: string }[];
 };
 
 const MODELS_I2V: { value: string; label: string }[] = [
@@ -166,8 +171,14 @@ export default function Studio(props: Props) {
   const [activeTheme, setActiveTheme] = useState("teal");
   const [, start] = useTransition();
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [batchesSectionCollapsed, setBatchesSectionCollapsed] = useState(false);
+  const [assetsSectionCollapsed, setAssetsSectionCollapsed] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState<{ jobId: string; label: string } | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
 
@@ -224,7 +235,22 @@ export default function Studio(props: Props) {
     return () => clearInterval(id);
   }, [anyActive, router]);
 
-  useEffect(() => { setSelectedCells(new Set()); }, [props.activeProjectId]);
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    function onClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [userMenuOpen]);
+
+  useEffect(() => {
+    setSelectedCells(new Set());
+    setBatchesSectionCollapsed(false);
+    setAssetsSectionCollapsed(false);
+  }, [props.activeProjectId]);
 
   function switchProject(id: string) {
     router.push(`/workspaces/${props.workspaceId}/studio?p=${id}`);
@@ -266,10 +292,8 @@ export default function Studio(props: Props) {
   }
 
   function handleCreateBatch(projectId: string) {
-    const name = window.prompt("Tên batch (VD: Gen ngày 22/06):");
-    if (name === null) return;
     start(async () => {
-      const batchId = await createBatchAction(props.workspaceId, projectId, name.trim() || "Batch mới");
+      const batchId = await createBatchAction(props.workspaceId, projectId);
       router.push(`/workspaces/${props.workspaceId}/studio?p=${projectId}&b=${batchId}`);
     });
   }
@@ -310,6 +334,14 @@ export default function Studio(props: Props) {
     start(() => updateAvatarCellAction(props.workspaceId, jobId, patch));
   const conv = (jobId: string, type: CellTypeTab) =>
     start(() => convertCellAction(props.workspaceId, jobId, type));
+  function handleGenerate(cell: CellView) {
+    const nextEmpty = cell.resultUrls.findIndex((s) => !s);
+    if (nextEmpty !== -1) {
+      start(() => generateCellAction(props.workspaceId, cell.id, nextEmpty));
+    } else {
+      setConfirmOverwrite({ jobId: cell.id, label: `Output 1 của ô "${cell.prompt ? cell.prompt.slice(0, 20) + '…' : cell.id.slice(-6)}"` });
+    }
+  }
 
   function toggleSelect(id: string) {
     setSelectedCells((prev) => {
@@ -375,11 +407,28 @@ export default function Studio(props: Props) {
           {props.cells.length} ô{activeCells.length > 0 && ` · ${activeCells.length} đang chạy`}
         </div>
 
-        <div
-          className="grid h-[30px] w-[30px] flex-none place-items-center rounded-full text-[11px] font-bold text-[#06222c]"
-          style={{ background: "conic-gradient(from 200deg,rgb(var(--color-accent)),rgb(var(--color-ok)),rgb(var(--color-yellow)),rgb(var(--color-accent)))" }}
-        >
-          {props.userName}
+        <div ref={userMenuRef} className="relative">
+          <button
+            onClick={() => setUserMenuOpen((o) => !o)}
+            className="grid h-[30px] w-[30px] flex-none place-items-center rounded-full text-[11px] font-bold text-[#06222c] transition hover:brightness-110"
+            style={{ background: "conic-gradient(from 200deg,rgb(var(--color-accent)),rgb(var(--color-ok)),rgb(var(--color-yellow)),rgb(var(--color-accent)))" }}
+            title={props.userFullName}
+          >
+            {props.userName}
+          </button>
+          {userMenuOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
+              <div className="border-b border-border px-3 py-2.5">
+                <p className="truncate text-xs font-medium text-white">{props.userFullName}</p>
+              </div>
+              <form action={signOutAction}>
+                <button type="submit" className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-muted hover:bg-white/5 hover:text-bad">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
+                  Đăng xuất
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       </header>
 
@@ -406,10 +455,22 @@ export default function Studio(props: Props) {
             {shown.length === 0 && <p className="p-4 text-sm text-muted">Không có project khớp.</p>}
             {shown.map((p) => {
               const on = p.id === props.activeProjectId;
+              const projectCollapsed = collapsedProjects.has(p.id);
               return (
                 <div key={p.id} className={`mb-1 rounded-xl border ${on ? "border-accent/40 bg-accent/10" : "border-transparent"}`}>
-                  {/* Project row with rename/delete on hover */}
-                  <div className="group flex items-center gap-1 rounded-xl px-1 py-0.5">
+                  {/* Project row */}
+                  <div className="group flex items-center gap-0.5 rounded-xl px-1 py-0.5">
+                    {on ? (
+                      <button
+                        onClick={() => setCollapsedProjects((prev) => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
+                        className="flex h-6 w-5 flex-none items-center justify-center text-muted hover:text-accent-soft"
+                        title={projectCollapsed ? "Mở rộng" : "Thu gọn"}
+                      >
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: projectCollapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}><path d="M9 6l6 6-6 6" /></svg>
+                      </button>
+                    ) : (
+                      <span className="w-5 flex-none" />
+                    )}
                     <button
                       onClick={() => switchProject(p.id)}
                       className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-white/5"
@@ -432,7 +493,7 @@ export default function Studio(props: Props) {
                     </button>
                   </div>
 
-                  {on && (
+                  {on && !projectCollapsed && (
                     <div className="px-3 pb-3">
                       <input ref={imgRef} type="file" accept="image/*" multiple hidden onChange={(e) => { uploadImages(e.target.files); e.currentTarget.value = ""; }} />
                       <input ref={vidRef} type="file" accept="video/mp4,video/quicktime,.mp4,.mov" multiple hidden onChange={(e) => { uploadVideos(e.target.files); e.currentTarget.value = ""; }} />
@@ -440,7 +501,13 @@ export default function Studio(props: Props) {
                       {/* ── Batches ── */}
                       <div>
                         <div className="mb-1.5 flex items-center justify-between">
-                          <span className="mono text-muted">Batches</span>
+                          <button
+                            onClick={() => setBatchesSectionCollapsed((v) => !v)}
+                            className="mono flex items-center gap-1 text-muted hover:text-white"
+                          >
+                            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: batchesSectionCollapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}><path d="M9 6l6 6-6 6" /></svg>
+                            Batches
+                          </button>
                           <button
                             onClick={() => handleCreateBatch(p.id)}
                             className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft"
@@ -448,94 +515,129 @@ export default function Studio(props: Props) {
                             + New
                           </button>
                         </div>
-                        <div className="flex flex-col gap-0.5">
-                          {props.activeBatches.map((b) => (
-                            <div
-                              key={b.id}
-                              className={`group/batch flex items-center gap-1 rounded-lg px-1.5 py-1 ${b.id === props.activeBatchId ? "border border-accent/40 bg-accent/15" : "hover:bg-white/5"}`}
-                            >
-                              <button
-                                onClick={() => router.push(`/workspaces/${props.workspaceId}/studio?p=${p.id}&b=${b.id}`)}
-                                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                        {!batchesSectionCollapsed && (
+                          <div className="flex flex-col gap-0.5">
+                            {props.activeBatches.map((b) => (
+                              <div
+                                key={b.id}
+                                className={`group/batch flex items-center gap-1 rounded-lg px-1.5 py-1 ${b.id === props.activeBatchId ? "border border-accent/40 bg-accent/15" : "hover:bg-white/5"}`}
                               >
-                                <span className={`h-1.5 w-1.5 flex-none rounded-full ${b.id === props.activeBatchId ? "bg-accent-soft" : "bg-border"}`} />
-                                <span className="truncate text-xs text-white">{b.name}</span>
-                                <span className="ml-auto flex-none text-[9px] text-muted">{b.jobCount}</span>
-                              </button>
-                              <button
-                                onClick={() => handleRenameBatch(b.id, b.name)}
-                                className="hidden h-5 w-5 flex-none items-center justify-center rounded text-muted hover:text-accent-soft group-hover/batch:flex"
-                                title="Đổi tên batch"
-                              >
-                                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z" /></svg>
-                              </button>
-                              <button
-                                onClick={() => handleDeleteBatch(b.id)}
-                                className="hidden h-5 w-5 flex-none items-center justify-center rounded text-muted hover:text-bad group-hover/batch:flex"
-                                title="Xoá batch"
-                              >
-                                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M9 6V4h6v2" /></svg>
-                              </button>
-                            </div>
-                          ))}
-                          {props.activeBatches.length === 0 && (
-                            <p className="py-1 text-center text-[11px] text-muted">Chưa có batch nào.</p>
-                          )}
-                        </div>
+                                <button
+                                  onClick={() => router.push(`/workspaces/${props.workspaceId}/studio?p=${p.id}&b=${b.id}`)}
+                                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                                >
+                                  <span className={`h-1.5 w-1.5 flex-none rounded-full ${b.id === props.activeBatchId ? "bg-accent-soft" : "bg-border"}`} />
+                                  <span className="truncate text-xs text-white">{b.name}</span>
+                                  <span className="ml-auto flex-none text-[9px] text-muted">{b.jobCount}</span>
+                                </button>
+                                <button
+                                  onClick={() => handleRenameBatch(b.id, b.name)}
+                                  className="hidden h-5 w-5 flex-none items-center justify-center rounded text-muted hover:text-accent-soft group-hover/batch:flex"
+                                  title="Đổi tên batch"
+                                >
+                                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z" /></svg>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteBatch(b.id)}
+                                  className="hidden h-5 w-5 flex-none items-center justify-center rounded text-muted hover:text-bad group-hover/batch:flex"
+                                  title="Xoá batch"
+                                >
+                                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M9 6V4h6v2" /></svg>
+                                </button>
+                              </div>
+                            ))}
+                            {props.activeBatches.length === 0 && (
+                              <p className="py-1 text-center text-[11px] text-muted">Chưa có batch nào.</p>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* ── Assets của batch đang chọn ── */}
                       {props.activeBatchId && (
                         <div className="mt-2 border-t border-border pt-2">
-                          <div className="mb-2 flex items-center gap-2">
-                            <button onClick={() => imgRef.current?.click()} className="flex-1 rounded-lg border border-dashed border-border py-2 text-xs text-muted hover:border-accent hover:text-accent-soft">
-                              + Thêm ảnh
+                          <div className="mb-2 flex items-center justify-between">
+                            <button
+                              onClick={() => setAssetsSectionCollapsed((v) => !v)}
+                              className="flex items-center gap-1 text-xs text-muted hover:text-white"
+                            >
+                              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: assetsSectionCollapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}><path d="M9 6l6 6-6 6" /></svg>
+                              Ảnh nguồn
                             </button>
-                            <button onClick={toggleView} title="Đổi cách xem" className="rounded-lg border border-border px-2 py-2 text-muted hover:border-accent hover:text-accent-soft">
-                              {view === "grid" ? (
-                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-                              ) : (
-                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
-                              )}
-                            </button>
-                          </div>
-                          {view === "grid" ? (
-                            <div className="grid grid-cols-3 gap-1.5">
-                              {imageAssets.map((a) => (
-                                <img key={a.id} src={assetUrl(a.id)} alt={a.filename} title={a.filename} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="aspect-[3/4] w-full cursor-grab rounded-lg border border-border object-cover transition hover:-translate-y-0.5 hover:border-accent" />
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1.5">
-                              {imageAssets.map((a) => (
-                                <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent">
-                                  <img src={assetUrl(a.id)} alt="" className="h-8 w-6 flex-none rounded object-cover" />
-                                  <span className="truncate text-xs text-white">{a.filename}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {imageAssets.length === 0 && <p className="mt-1 text-center text-[11px] text-muted">Chưa có ảnh.</p>}
-
-                          <div className="mt-2 border-t border-border pt-2">
-                            <div className="mb-1.5 flex items-center justify-between">
-                              <span className="mono text-muted">Video MC</span>
-                              <button onClick={() => vidRef.current?.click()} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
-                                + Thêm video
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => imgRef.current?.click()} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
+                                + Ảnh
+                              </button>
+                              <button onClick={toggleView} title="Đổi cách xem" className="rounded-lg border border-border px-1.5 py-1 text-muted hover:border-accent hover:text-accent-soft">
+                                {view === "grid" ? (
+                                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+                                ) : (
+                                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
+                                )}
                               </button>
                             </div>
-                            <div className="flex flex-col gap-1">
-                              {videoAssets.map((a) => (
-                                <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent-soft">
-                                  <span className="grid h-6 w-6 flex-none place-items-center rounded bg-white/5 text-accent-soft">
-                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                                  </span>
-                                  <span className="truncate text-xs text-white">{a.filename}</span>
-                                </div>
-                              ))}
-                              {videoAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có video.</p>}
-                            </div>
                           </div>
+                          {!assetsSectionCollapsed && (
+                            <>
+                              {view === "grid" ? (
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  {imageAssets.map((a) => (
+                                    <img key={a.id} src={assetUrl(a.id)} alt={a.filename} title={a.filename} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="aspect-[3/4] w-full cursor-grab rounded-lg border border-border object-cover transition hover:-translate-y-0.5 hover:border-accent" />
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1.5">
+                                  {imageAssets.map((a) => (
+                                    <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent">
+                                      <img src={assetUrl(a.id)} alt="" className="h-8 w-6 flex-none rounded object-cover" />
+                                      <span className="truncate text-xs text-white">{a.filename}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {imageAssets.length === 0 && <p className="mt-1 text-center text-[11px] text-muted">Chưa có ảnh.</p>}
+
+                              <div className="mt-2 border-t border-border pt-2">
+                                <div className="mb-1.5 flex items-center justify-between">
+                                  <span className="mono text-[10px] text-muted">Video MC</span>
+                                  <button onClick={() => vidRef.current?.click()} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
+                                    + Video
+                                  </button>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  {videoAssets.map((a) => (
+                                    <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent-soft">
+                                      <span className="grid h-6 w-6 flex-none place-items-center rounded bg-white/5 text-accent-soft">
+                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                                      </span>
+                                      <span className="truncate text-xs text-white">{a.filename}</span>
+                                    </div>
+                                  ))}
+                                  {videoAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có video.</p>}
+                                </div>
+                                {props.libraryVideos.length > 0 && (
+                                  <div className="mt-2 border-t border-border pt-2">
+                                    <span className="mono text-[10px] text-muted">Thư viện mẫu</span>
+                                    <div className="mt-1 flex flex-col gap-1">
+                                      {props.libraryVideos.map((v) => (
+                                        <div
+                                          key={v.id}
+                                          draggable
+                                          onDragStart={(e) => e.dataTransfer.setData("text/library-video", v.id)}
+                                          className="flex cursor-grab items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 p-1.5 hover:border-accent-soft"
+                                        >
+                                          <span className="grid h-6 w-6 flex-none place-items-center rounded bg-accent/15 text-accent-soft">
+                                            <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                                          </span>
+                                          <span className="truncate text-xs text-accent-soft">{v.name}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -694,14 +796,14 @@ export default function Studio(props: Props) {
                   selected: selectedCells.has(c.id),
                   onSelect: () => toggleSelect(c.id),
                   onToggle: () => toggleCollapse(c.id),
-                  onGenerate: () => start(() => generateCellAction(props.workspaceId, c.id)),
+                  onGenerate: () => handleGenerate(c),
                   onDup: () => start(() => duplicateCellAction(props.workspaceId, c.id)),
                   onDel: () => start(() => deleteCellAction(props.workspaceId, c.id)),
                   onConvert: (t: CellTypeTab) => conv(c.id, t),
                   onPreview: (url: string) => { setPreviewUrl(url); setPreviewOpen(true); },
                 };
                 if (c.type === "motioncontrol") {
-                  return <MotionCell {...shared} imageAssets={imageAssets} videoAssets={videoAssets} onField={(p) => updMC(c.id, p)} />;
+                  return <MotionCell {...shared} imageAssets={imageAssets} videoAssets={videoAssets} libraryVideos={props.libraryVideos} onField={(p) => updMC(c.id, p)} />;
                 }
                 if (c.type === "avatar") {
                   return <AvatarCell {...shared} onField={(p) => updAvatar(c.id, p)} />;
@@ -721,6 +823,26 @@ export default function Studio(props: Props) {
         <PreviewSidebar url={previewUrl} open={previewOpen} onToggle={() => setPreviewOpen((v) => !v)} />
       </div>
 
+      {/* OVERWRITE CONFIRM TOAST */}
+      {confirmOverwrite && (
+        <div className="fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-yellow/45 bg-surface p-4 shadow-2xl backdrop-blur-md">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold text-yellow">Đã có đủ 3 outputs</p>
+            <p className="mt-1 text-[11px] text-muted">Ghi đè {confirmOverwrite.label}?</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() => { start(() => generateCellAction(props.workspaceId, confirmOverwrite.jobId, 0)); setConfirmOverwrite(null); }}
+              className="rounded-lg bg-yellow/20 px-3 py-1.5 text-[11px] font-bold text-yellow hover:bg-yellow/30"
+            >
+              Ghi đè
+            </button>
+            <button onClick={() => setConfirmOverwrite(null)} className="rounded-lg px-3 py-1.5 text-[11px] text-muted hover:text-white">
+              Huỷ
+            </button>
+          </div>
+        </div>
+      )}
       {/* SETTINGS MODAL */}
       {settingsOpen && (
         <div onClick={() => setSettingsOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -838,7 +960,7 @@ function Cell({
           )}
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-white">{cell.prompt || "(chưa có prompt)"}</div>
-            <div className="mono mt-0.5 text-[10px] text-muted">{cell.modelName} · {cell.duration}s · {cell.mode}</div>
+            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cell.modelName} · {cell.duration}s · {cell.mode}</span><span className="ml-auto text-[9px]">{cell.resultUrls.filter(Boolean).length}/3</span></div>
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
@@ -932,18 +1054,33 @@ function Cell({
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* result */}
-        <div className="flex w-36 flex-none items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2">
-          {cell.status === "succeeded" && cell.resultUrl ? (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
-              <button onClick={() => onPreview(cell.resultUrl!)} className="flex flex-col items-center gap-1.5 text-accent-soft hover:text-white">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                <span className="text-xs">Xem video</span>
-              </button>
-              <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="text-[10px] text-muted hover:text-white" title="Mở trong tab mới">↗ tab mới</a>
-            </div>
-          ) : (
-            <span className={`mono px-2 text-center ${st.c}`}>{st.t}</span>
+        {/* result — 3 slots */}
+        <div className="flex w-36 flex-none flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface-2 p-2">
+          {cell.resultUrls.map((url, i) => {
+            const isGenerating = !url && cell.targetSlot === i && (cell.status === "queued" || cell.status === "submitted" || cell.status === "processing");
+            return (
+              <div key={i}>
+                {url ? (
+                  <button onClick={() => onPreview(url)} className="flex w-full items-center gap-1.5 rounded-lg border border-ok/30 bg-ok/5 px-2 py-1.5 text-[11px] text-ok hover:bg-ok/10">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" className="flex-none"><path d="M5 3l14 9-14 9z" /></svg>
+                    <span className="truncate">Output {i + 1}</span>
+                  </button>
+                ) : isGenerating ? (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/5 px-2 py-1.5 text-[10px] text-accent-soft">
+                    <span>⟳</span>
+                    <span className="truncate">{cell.status === "queued" ? "Đợi..." : "Đang tạo"}</span>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">○ Slot {i + 1}</div>
+                )}
+              </div>
+            );
+          })}
+          {cell.status === "failed" && cell.error && (
+            <p className="mt-0.5 line-clamp-2 text-[9px] text-bad">{cell.error}</p>
+          )}
+          {!cell.resultUrls.some(Boolean) && cell.status !== "failed" && (
+            <p className={`mono mt-0.5 text-center text-[9px] ${st.c}`}>{st.t}</p>
           )}
         </div>
       </div>
@@ -953,11 +1090,12 @@ function Cell({
 
 // ── Motion Control Cell ───────────────────────────────────────────────────────
 function MotionCell({
-  cell, imageAssets, videoAssets, collapsed, selected, onSelect, onToggle, onField, onGenerate, onDup, onDel, onConvert, onPreview,
+  cell, imageAssets, videoAssets, libraryVideos, collapsed, selected, onSelect, onToggle, onField, onGenerate, onDup, onDel, onConvert, onPreview,
 }: {
   cell: CellView;
   imageAssets: AssetView[];
   videoAssets: AssetView[];
+  libraryVideos: { id: string; name: string; filename: string }[];
   collapsed: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -971,6 +1109,7 @@ function MotionCell({
 }) {
   const [imgDropOver, setImgDropOver] = useState(false);
   const [vidDropOver, setVidDropOver] = useState(false);
+  const [libPickerOpen, setLibPickerOpen] = useState(false);
   const st = ST[cell.status];
   const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
 
@@ -1020,7 +1159,7 @@ function MotionCell({
           <span className="mono flex-none rounded-md bg-accent/15 px-1.5 py-0.5 text-[9px] text-accent-soft">Motion Control</span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-white">{cell.prompt || "(chưa có prompt)"}</div>
-            <div className="mono mt-0.5 text-[10px] text-muted">{cell.modelName} · {cell.mode} · orient:{cell.characterOrientation}</div>
+            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cell.modelName} · {cell.mode} · orient:{cell.characterOrientation}</span><span className="ml-auto text-[9px]">{cell.resultUrls.filter(Boolean).length}/3</span></div>
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
@@ -1045,7 +1184,7 @@ function MotionCell({
         {handle}
 
         {/* ref image + ref video */}
-        <div className="ml-3 flex flex-none flex-col gap-2">
+        <div className="relative ml-3 flex flex-none flex-col gap-2">
           <span className="mono text-[9px] text-accent-soft">Ảnh tham chiếu</span>
           <div
             onDragOver={(e) => { e.preventDefault(); setImgDropOver(true); }}
@@ -1073,12 +1212,22 @@ function MotionCell({
             onDragLeave={() => setVidDropOver(false)}
             onDrop={(e) => {
               e.preventDefault(); e.stopPropagation(); setVidDropOver(false);
+              const libId = e.dataTransfer.getData("text/library-video");
+              if (libId) { onField({ libraryVideoId: libId, videoAssetId: null }); return; }
               const id = e.dataTransfer.getData("text/asset");
-              if (id && videoAssets.some((a) => a.id === id)) onField({ videoAssetId: id });
+              if (id && videoAssets.some((a) => a.id === id)) onField({ videoAssetId: id, libraryVideoId: null });
             }}
             className={`flex h-[100px] w-[100px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-[10px] ${vidDropOver ? "border-accent text-accent-soft bg-accent/10" : "border-border text-muted"}`}
           >
-            {cell.videoAssetId ? (
+            {cell.libraryVideoId ? (
+              <div className="flex flex-col items-center gap-1 px-1">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" className="text-accent-soft"><path d="M5 3l14 9-14 9z" /></svg>
+                <span className="max-w-full truncate text-center text-accent-soft">
+                  {libraryVideos.find((v) => v.id === cell.libraryVideoId)?.name ?? "Thư viện"}
+                </span>
+                <span className="rounded bg-accent/15 px-1 text-[9px] text-accent-soft">Mẫu</span>
+              </div>
+            ) : cell.videoAssetId ? (
               <div className="flex flex-col items-center gap-1">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M8 5V3M16 5V3M3 10h18" /></svg>
                 <span className="max-w-full truncate px-1 text-center text-accent-soft">
@@ -1092,6 +1241,34 @@ function MotionCell({
               </>
             )}
           </div>
+          {libraryVideos.length > 0 && (
+            <button
+              onClick={() => setLibPickerOpen((o) => !o)}
+              className="w-full rounded-lg border border-accent/30 bg-accent/5 px-2 py-1 text-center text-[10px] text-accent-soft hover:border-accent hover:bg-accent/15"
+            >
+              Chọn từ thư viện
+            </button>
+          )}
+          {libPickerOpen && (
+            <div className="absolute left-0 top-full z-40 mt-1 w-[220px] overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
+              <div className="border-b border-border px-3 py-2 text-[10px] font-semibold text-muted">Thư viện video mẫu</div>
+              <div className="max-h-[240px] overflow-y-auto p-1.5">
+                {libraryVideos.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => { onField({ libraryVideoId: v.id, videoAssetId: null }); setLibPickerOpen(false); }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/5"
+                  >
+                    <video src={`/api/library/${v.id}`} muted preload="metadata" className="h-10 w-14 flex-none rounded object-cover bg-black" />
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-medium text-white">{v.name}</div>
+                      <div className="truncate text-[9px] text-muted">{v.filename}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mx-4 w-px flex-none bg-border" />
@@ -1138,27 +1315,42 @@ function MotionCell({
         <div className="mx-4 flex w-[134px] flex-none flex-col gap-3.5">
           <button
             onClick={onGenerate}
-            disabled={busy || !cell.videoAssetId}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : !cell.videoAssetId ? "cursor-not-allowed bg-surface-2 text-muted" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+            disabled={busy || (!cell.videoAssetId && !cell.libraryVideoId)}
+            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : (!cell.videoAssetId && !cell.libraryVideoId) ? "cursor-not-allowed bg-surface-2 text-muted" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
           >
-            {!busy && !cell.videoAssetId ? "Cần video" : genLabel(cell.status)}
+            {!busy && !cell.videoAssetId && !cell.libraryVideoId ? "Cần video" : genLabel(cell.status)}
           </button>
           <button onClick={onDup} className="rounded-lg border border-accent/50 bg-accent/15 px-1.5 py-2 text-[10.5px] font-semibold text-accent-soft hover:bg-accent/25">+ Biến thể</button>
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* result */}
-        <div className="flex w-36 flex-none items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2">
-          {cell.status === "succeeded" && cell.resultUrl ? (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
-              <button onClick={() => onPreview(cell.resultUrl!)} className="flex flex-col items-center gap-1.5 text-accent-soft hover:text-white">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                <span className="text-xs">Xem video</span>
-              </button>
-              <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="text-[10px] text-muted hover:text-white" title="Mở trong tab mới">↗ tab mới</a>
-            </div>
-          ) : (
-            <span className={`mono px-2 text-center ${st.c}`}>{st.t}</span>
+        {/* result — 3 slots */}
+        <div className="flex w-36 flex-none flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface-2 p-2">
+          {cell.resultUrls.map((url, i) => {
+            const isGenerating = !url && cell.targetSlot === i && (cell.status === "queued" || cell.status === "submitted" || cell.status === "processing");
+            return (
+              <div key={i}>
+                {url ? (
+                  <button onClick={() => onPreview(url)} className="flex w-full items-center gap-1.5 rounded-lg border border-ok/30 bg-ok/5 px-2 py-1.5 text-[11px] text-ok hover:bg-ok/10">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" className="flex-none"><path d="M5 3l14 9-14 9z" /></svg>
+                    <span className="truncate">Output {i + 1}</span>
+                  </button>
+                ) : isGenerating ? (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/5 px-2 py-1.5 text-[10px] text-accent-soft">
+                    <span>⟳</span>
+                    <span className="truncate">{cell.status === "queued" ? "Đợi..." : "Đang tạo"}</span>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">○ Slot {i + 1}</div>
+                )}
+              </div>
+            );
+          })}
+          {cell.status === "failed" && cell.error && (
+            <p className="mt-0.5 line-clamp-2 text-[9px] text-bad">{cell.error}</p>
+          )}
+          {!cell.resultUrls.some(Boolean) && cell.status !== "failed" && (
+            <p className={`mono mt-0.5 text-center text-[9px] ${st.c}`}>{st.t}</p>
           )}
         </div>
       </div>
@@ -1230,7 +1422,7 @@ function AvatarCell({
           <span className="mono flex-none rounded-md bg-yellow/15 px-1.5 py-0.5 text-[9px] text-yellow">Avatar</span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-white">{cell.avatarText || "(chưa có văn bản)"}</div>
-            <div className="mono mt-0.5 text-[10px] text-muted">{cell.avatarId || "—"} · {cell.voiceId || "—"} · {cell.voiceLanguage}</div>
+            <div className="mono mt-0.5 flex items-center gap-1 text-[10px] text-muted"><span>{cell.avatarId || "—"} · {cell.voiceId || "—"} · {cell.voiceLanguage}</span><span className="ml-auto text-[9px]">{cell.resultUrls.filter(Boolean).length}/3</span></div>
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
@@ -1325,18 +1517,33 @@ function AvatarCell({
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* result */}
-        <div className="flex w-36 flex-none items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2">
-          {cell.status === "succeeded" && cell.resultUrl ? (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
-              <button onClick={() => onPreview(cell.resultUrl!)} className="flex flex-col items-center gap-1.5 text-accent-soft hover:text-white">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                <span className="text-xs">Xem video</span>
-              </button>
-              <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="text-[10px] text-muted hover:text-white" title="Mở trong tab mới">↗ tab mới</a>
-            </div>
-          ) : (
-            <span className={`mono px-2 text-center ${st.c}`}>{st.t}</span>
+        {/* result — 3 slots */}
+        <div className="flex w-36 flex-none flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface-2 p-2">
+          {cell.resultUrls.map((url, i) => {
+            const isGenerating = !url && cell.targetSlot === i && (cell.status === "queued" || cell.status === "submitted" || cell.status === "processing");
+            return (
+              <div key={i}>
+                {url ? (
+                  <button onClick={() => onPreview(url)} className="flex w-full items-center gap-1.5 rounded-lg border border-ok/30 bg-ok/5 px-2 py-1.5 text-[11px] text-ok hover:bg-ok/10">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" className="flex-none"><path d="M5 3l14 9-14 9z" /></svg>
+                    <span className="truncate">Output {i + 1}</span>
+                  </button>
+                ) : isGenerating ? (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/5 px-2 py-1.5 text-[10px] text-accent-soft">
+                    <span>⟳</span>
+                    <span className="truncate">{cell.status === "queued" ? "Đợi..." : "Đang tạo"}</span>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">○ Slot {i + 1}</div>
+                )}
+              </div>
+            );
+          })}
+          {cell.status === "failed" && cell.error && (
+            <p className="mt-0.5 line-clamp-2 text-[9px] text-bad">{cell.error}</p>
+          )}
+          {!cell.resultUrls.some(Boolean) && cell.status !== "failed" && (
+            <p className={`mono mt-0.5 text-center text-[9px] ${st.c}`}>{st.t}</p>
           )}
         </div>
       </div>

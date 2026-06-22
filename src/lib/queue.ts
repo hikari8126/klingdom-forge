@@ -123,9 +123,26 @@ export async function markProcessing(jobId: string) {
 }
 
 export async function markSucceeded(jobId: string, resultUrl: string) {
+  const job = await db.job.findUnique({ where: { id: jobId } });
+  if (!job) return;
+
+  const params = { ...(job.params as Record<string, unknown>) };
+  const slots: (string | null)[] = Array.isArray(params.resultUrls)
+    ? [...(params.resultUrls as (string | null)[])]
+    : [null, null, null];
+  while (slots.length < 3) slots.push(null);
+
+  const targetSlot = typeof params.targetSlot === "number"
+    ? Math.max(0, Math.min(2, params.targetSlot))
+    : Math.max(0, slots.findIndex((s) => !s));
+
+  slots[targetSlot] = resultUrl;
+  params.resultUrls = slots.slice(0, 3);
+  delete params.targetSlot;
+
   await db.job.update({
     where: { id: jobId },
-    data: { status: "succeeded", resultUrl, error: null },
+    data: { status: "succeeded", resultUrl, error: null, params: params as object },
   });
 }
 

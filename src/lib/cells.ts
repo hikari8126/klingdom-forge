@@ -17,6 +17,7 @@ export type CellParams = {
   duration: string; // "3".."15" for image2video; not used for avatar
   // motioncontrol-only
   videoAssetId?: string;
+  libraryVideoId?: string;
   videoPath?: string;
   characterOrientation?: "image" | "video";
   keepOriginalSound?: "yes" | "no";
@@ -27,6 +28,9 @@ export type CellParams = {
   voiceLanguage?: string;
   voiceSpeed?: number;
   avatarText?: string;
+  // multi-output (up to 3 results per cell)
+  resultUrls?: (string | null)[];
+  targetSlot?: number;
 };
 
 async function assertCanEdit(actor: CurrentUser, projectId: string) {
@@ -164,6 +168,7 @@ export async function updateMotionCell(
     keepOriginalSound?: "yes" | "no";
     imageAssetId?: string | null;
     videoAssetId?: string | null;
+    libraryVideoId?: string | null;
   },
 ) {
   const job = await db.job.findUnique({ where: { id: jobId } });
@@ -179,8 +184,21 @@ export async function updateMotionCell(
     params.startAssetId = patch.imageAssetId ?? params.startAssetId;
     params.imagePath = patch.imageAssetId ? (await assetPath(patch.imageAssetId)) ?? params.imagePath : params.imagePath;
   }
+  if (patch.libraryVideoId !== undefined) {
+    if (patch.libraryVideoId !== null) {
+      const libVid = await db.libraryVideo.findUnique({ where: { id: patch.libraryVideoId }, select: { storedPath: true } });
+      if (libVid?.storedPath) {
+        params.libraryVideoId = patch.libraryVideoId;
+        params.videoPath = libVid.storedPath;
+        params.videoAssetId = undefined;
+      }
+    } else {
+      params.libraryVideoId = undefined;
+    }
+  }
   if (patch.videoAssetId !== undefined && patch.videoAssetId !== null) {
     params.videoAssetId = patch.videoAssetId;
+    params.libraryVideoId = undefined;
     params.videoPath = (await assetPath(patch.videoAssetId)) ?? params.videoPath;
   }
   return db.job.update({ where: { id: jobId }, data: { params: params as object } });
@@ -284,14 +302,36 @@ export async function convertCellType(
   });
 }
 
-/** Generate: move a draft (or finished) cell into the queue for the worker. */
-export async function generateCell(actor: CurrentUser, jobId: string) {
+/** Generate: move a draft (or finished) cell into the queue for the worker.
+ *  targetSlot (0-2): which output slot to fill. If omitted, picks the first empty slot. */
+export async function generateCell(actor: CurrentUser, jobId: string, targetSlot?: number) {
   const job = await db.job.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("Cell không tồn tại");
   await assertCanEdit(actor, job.projectId);
   if (job.status !== "draft" && job.status !== "succeeded" && job.status !== "failed") return job;
+
+  const params = { ...(job.params as CellParams) };
+  const slots: (string | null)[] = Array.isArray(params.resultUrls)
+    ? [...params.resultUrls]
+    : [null, null, null];
+  while (slots.length < 3) slots.push(null);
+
+  const slot =
+    targetSlot !== undefined
+      ? Math.max(0, Math.min(2, targetSlot))
+      : Math.max(0, slots.findIndex((s) => !s));
+
+  params.resultUrls = slots;
+  params.targetSlot = slot;
+
   return db.job.update({
     where: { id: jobId },
-    data: { status: "queued", error: null, resultUrl: null, klingAccountId: null, klingTaskId: null },
+    data: {
+      status: "queued",
+      error: null,
+      klingAccountId: null,
+      klingTaskId: null,
+      params: params as object,
+    },
   });
 }

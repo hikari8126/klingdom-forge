@@ -149,6 +149,15 @@ model Asset {
   @@index([batchId])
 }
 
+model LibraryVideo {
+  id         String   @id @default(cuid())
+  name       String
+  filename   String
+  storedPath String
+  mimeType   String   @default("video/mp4")
+  createdAt  DateTime @default(now())
+}
+
 model WorkerStatus {
   id     String   @id @default("singleton")
   beatAt DateTime @default(now())

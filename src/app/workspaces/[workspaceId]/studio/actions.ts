@@ -48,7 +48,7 @@ export async function deleteProjectAction(workspaceId: string, projectId: string
 
 // ── Batch actions ─────────────────────────────────────────────────────────────
 
-export async function createBatchAction(workspaceId: string, projectId: string, name: string) {
+export async function createBatchAction(workspaceId: string, projectId: string, name?: string) {
   const actor = await requireUser();
   const b = await createBatch(actor, projectId, name);
   rv(workspaceId);
@@ -152,9 +152,9 @@ export async function deleteCellAction(workspaceId: string, jobId: string) {
   rv(workspaceId);
 }
 
-export async function generateCellAction(workspaceId: string, jobId: string) {
+export async function generateCellAction(workspaceId: string, jobId: string, targetSlot?: number) {
   const actor = await requireUser();
-  await generateCell(actor, jobId);
+  await generateCell(actor, jobId, targetSlot);
   rv(workspaceId);
 }
 
@@ -169,6 +169,7 @@ export async function updateMotionCellAction(
     keepOriginalSound?: "yes" | "no";
     imageAssetId?: string | null;
     videoAssetId?: string | null;
+    libraryVideoId?: string | null;
   },
 ) {
   const actor = await requireUser();

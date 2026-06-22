@@ -6,6 +6,7 @@ import { countEnabledAccounts } from "@/lib/kling-accounts";
 import { isWorkerOnline } from "@/lib/worker-status";
 import { listCells, type CellParams } from "@/lib/cells";
 import { listBatches } from "@/lib/batches";
+import { listLibraryVideos } from "@/lib/library-videos";
 import Studio, { type CellView } from "./Studio";
 
 export const dynamic = "force-dynamic";
@@ -58,10 +59,17 @@ export default async function StudioPage({
           status: j.status,
           type: j.type,
           resultUrl: j.resultUrl,
+          resultUrls: (() => {
+            const raw = Array.isArray(pr.resultUrls) ? (pr.resultUrls as (string | null)[]) : null;
+            if (raw && raw.length > 0) return ([...raw, null, null, null].slice(0, 3) as (string | null)[]);
+            return [j.resultUrl ?? null, null, null] as (string | null)[];
+          })(),
+          targetSlot: typeof pr.targetSlot === "number" ? pr.targetSlot : null,
           error: j.error,
           startAssetId: pr.startAssetId ?? "",
           endAssetId: pr.endAssetId ?? null,
           videoAssetId: pr.videoAssetId ?? null,
+          libraryVideoId: pr.libraryVideoId ?? null,
           prompt: pr.prompt ?? "",
           modelName: pr.modelName,
           mode: pr.mode,
@@ -88,6 +96,7 @@ export default async function StudioPage({
 
   const hasAccount = (await countEnabledAccounts()) > 0;
   const workerOnline = await isWorkerOnline();
+  const libraryVideos = (await listLibraryVideos()).map((v) => ({ id: v.id, name: v.name, filename: v.filename }));
 
   return (
     <Studio
@@ -103,6 +112,7 @@ export default async function StudioPage({
       activeBatches={batches}
       assets={assets}
       cells={cells}
+      libraryVideos={libraryVideos}
     />
   );
 }
