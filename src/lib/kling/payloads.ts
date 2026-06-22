@@ -12,6 +12,10 @@ export function buildImage2VideoBody(
   if (p.modelName !== undefined) body.model_name = p.modelName;
   if (p.mode !== undefined) body.mode = p.mode;
   if (p.duration !== undefined) body.duration = p.duration;
+  if (p.aspectRatio !== undefined) body.aspect_ratio = p.aspectRatio;
+  if (p.sound !== undefined) body.sound = p.sound;
+  if (p.multiShot !== undefined) body.multi_shot = p.multiShot;
+  if (p.shotType !== undefined) body.shot_type = p.shotType;
   if (p.cfgScale !== undefined) body.cfg_scale = p.cfgScale;
   if (p.callbackUrl !== undefined) body.callback_url = p.callbackUrl;
   return body;
@@ -48,16 +52,13 @@ export function buildLipSyncBody(p: LipSyncParams): Record<string, unknown> {
   return body;
 }
 
-/** Build the virtual-human (avatar) request body (POST /v1/videos/virtual-human). */
+/** Build the avatar request body (POST /v1/videos/avatar/image2video). */
 export function buildAvatarBody(p: AvatarParams): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    avatar_id: p.avatarId,
-    voice_id: p.voiceId,
-    voice_language: p.voiceLanguage,
-    text: p.text,
-  };
-  if (p.avatarType !== undefined) body.avatar_type = p.avatarType;
-  if (p.voiceSpeed !== undefined) body.voice_speed = p.voiceSpeed;
+  const body: Record<string, unknown> = { image: p.image };
+  if (p.audioId !== undefined) body.audio_id = p.audioId;
+  if (p.soundFile !== undefined) body.sound_file = p.soundFile;
+  if (p.prompt !== undefined) body.prompt = p.prompt;
+  if (p.mode !== undefined) body.mode = p.mode;
   if (p.callbackUrl !== undefined) body.callback_url = p.callbackUrl;
   return body;
 }

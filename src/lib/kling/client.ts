@@ -9,7 +9,7 @@ import {
   type KlingTask,
 } from "./types";
 
-export type KlingTaskKind = "image2video" | "lip-sync" | "motion-control" | "virtual-human";
+export type KlingTaskKind = "image2video" | "lip-sync" | "motion-control" | "avatar";
 
 /** Minimal fetch shape we depend on (injectable for testing). */
 export type KlingFetch = (
@@ -92,11 +92,15 @@ export class KlingClient {
     return this.request("POST", "/v1/videos/motion-control", buildMotionControlBody(params));
   }
 
-  createVirtualHuman(params: AvatarParams): Promise<KlingTask> {
-    return this.request("POST", "/v1/videos/virtual-human", buildAvatarBody(params));
+  createAvatar(params: AvatarParams): Promise<KlingTask> {
+    return this.request("POST", "/v1/videos/avatar/image2video", buildAvatarBody(params));
   }
 
   getTask(kind: KlingTaskKind, taskId: string): Promise<KlingTask> {
-    return this.request("GET", `/v1/videos/${kind}/${encodeURIComponent(taskId)}`);
+    const encoded = encodeURIComponent(taskId);
+    if (kind === "avatar") {
+      return this.request("GET", `/v1/videos/avatar/image2video/${encoded}`);
+    }
+    return this.request("GET", `/v1/videos/${kind}/${encoded}`);
   }
 }

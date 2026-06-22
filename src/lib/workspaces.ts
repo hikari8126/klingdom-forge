@@ -104,24 +104,22 @@ export async function removeMember(
   await db.workspaceMember.deleteMany({ where: { workspaceId, userId } });
 }
 
-/** Save (or replace) the workspace-level Kling API key. Manager or super_admin only. */
+/** Save (or replace) the workspace-level Kling API key. Super Admin only. */
 export async function saveWorkspaceKlingKey(
   actor: CurrentUser,
   workspaceId: string,
   apiKey: string,
 ) {
-  const membership = await membershipFor(workspaceId, actor.id);
-  if (!canManageWorkspace(actor.role, membership)) throw new ForbiddenError();
+  if (actor.role !== "super_admin") throw new ForbiddenError();
   const clean = apiKey.trim();
   if (!clean) throw new Error("API key không được để trống");
   const enc = encryptSecret(clean, getEncKey());
   await db.workspace.update({ where: { id: workspaceId }, data: { klingApiKeyEnc: enc } });
 }
 
-/** Clear the workspace-level Kling API key. Manager or super_admin only. */
+/** Clear the workspace-level Kling API key. Super Admin only. */
 export async function clearWorkspaceKlingKey(actor: CurrentUser, workspaceId: string) {
-  const membership = await membershipFor(workspaceId, actor.id);
-  if (!canManageWorkspace(actor.role, membership)) throw new ForbiddenError();
+  if (actor.role !== "super_admin") throw new ForbiddenError();
   await db.workspace.update({ where: { id: workspaceId }, data: { klingApiKeyEnc: null } });
 }
 

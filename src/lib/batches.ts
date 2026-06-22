@@ -15,15 +15,23 @@ export async function listBatches(actor: CurrentUser, projectId: string) {
   return db.batch.findMany({
     where: { projectId },
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { jobs: true } } },
+    include: { _count: { select: { jobs: { where: { parentJobId: null } } } } },
   });
 }
 
-export async function createBatch(actor: CurrentUser, projectId: string, name: string) {
+export async function createBatch(actor: CurrentUser, projectId: string, name?: string) {
   await assertCanEdit(actor, projectId);
-  const clean = name.trim() || "Batch mới";
+  let finalName = name?.trim();
+  if (!finalName) {
+    const count = await db.batch.count({ where: { projectId } });
+    const now = new Date();
+    const d = now.getDate();
+    const m = now.getMonth() + 1;
+    const y = now.getFullYear();
+    finalName = `Batch ${count + 1} (${d}.${m}.${y})`;
+  }
   return db.batch.create({
-    data: { projectId, createdById: actor.id, name: clean, source: "studio", total: 0 },
+    data: { projectId, createdById: actor.id, name: finalName, source: "studio", total: 0 },
   });
 }
 

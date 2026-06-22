@@ -11,7 +11,17 @@ const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS ?? "")
   .filter(Boolean);
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google],
+  providers: [
+    Google({
+      authorization: {
+        params: {
+          scope: "openid email profile https://www.googleapis.com/auth/drive.readonly",
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    }),
+  ],
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   // Trust the host header — required behind the reverse proxy on the VPS so
@@ -27,7 +37,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return isAllowedEmail(email, allowedDomain);
     },
     // On sign-in (profile present), upsert the user and resolve their global role.
-    async jwt({ token, profile }) {
+    async jwt({ token, profile, account }) {
+      if (account?.access_token) {
+        token.googleAccessToken = account.access_token;
+        token.googleAccessTokenExpiresAt = account.expires_at;
+      }
       if (profile?.email) {
         const email = profile.email.toLowerCase();
         const existing = await db.user.findUnique({ where: { email } });
@@ -50,6 +64,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const u = session.user as unknown as Record<string, unknown>;
         u["id"] = token.userId ?? "";
         if (token.role) u["role"] = token.role;
+      }
+      const googleAccessTokenExpiresAt =
+        typeof token.googleAccessTokenExpiresAt === "number"
+          ? token.googleAccessTokenExpiresAt
+          : null;
+      if (
+        token.googleAccessToken &&
+        (!googleAccessTokenExpiresAt || googleAccessTokenExpiresAt * 1000 > Date.now() + 60_000)
+      ) {
+        (session as unknown as Record<string, unknown>)["googleAccessToken"] = token.googleAccessToken;
       }
       return session;
     },

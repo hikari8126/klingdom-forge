@@ -3,6 +3,7 @@ import { fileToBase64 } from "@/lib/uploads";
 import { pickAccount, type AccountLoad } from "@/lib/queue-policy";
 import { listEnabledAccountsDecrypted, setAccountEnabled } from "@/lib/kling-accounts";
 import { getWorkspaceKeyForProject } from "@/lib/workspaces";
+import { canUseKlingNativeAudio, getKlingImageCapabilities, sanitizeKlingAvatarSettings, sanitizeKlingImageSettings, sanitizeKlingMotionSettings, type KlingVideoRatio } from "@/lib/kling-options";
 import {
   claimNextQueuedJob,
   inFlightByAccount,
@@ -27,14 +28,23 @@ async function buildTask(client: ReturnType<typeof createKlingClient>, job: NonN
       modelName?: string;
       mode?: "std" | "pro" | "4k";
       duration?: string;
+      videoRatio?: KlingVideoRatio;
+      nativeAudio?: boolean;
+      multiShot?: boolean;
     };
+    const safe = sanitizeKlingImageSettings(p);
+    const caps = getKlingImageCapabilities(safe.modelName);
     const params: Image2VideoParams = {
       image: await fileToBase64(p.imagePath),
       imageTail: p.endPath ? await fileToBase64(p.endPath) : undefined,
       prompt: p.prompt,
-      modelName: p.modelName,
-      mode: p.mode as "std" | "pro" | undefined,
-      duration: p.duration,
+      modelName: safe.modelName,
+      mode: safe.mode,
+      duration: safe.duration,
+      aspectRatio: caps.supportsVideoRatio ? safe.videoRatio : undefined,
+      sound: canUseKlingNativeAudio(safe.modelName, safe.mode) ? (safe.nativeAudio ? "on" : "off") : undefined,
+      multiShot: safe.multiShot ? true : undefined,
+      shotType: safe.multiShot ? "intelligence" : undefined,
     };
     return client.createImage2Video(params);
   } else if (job.type === "motioncontrol") {
@@ -48,34 +58,41 @@ async function buildTask(client: ReturnType<typeof createKlingClient>, job: NonN
       prompt?: string;
     };
     if (!p.videoPath) throw new Error("Motion control cell thiếu video tham chiếu");
+    const safe = sanitizeKlingMotionSettings(p);
     const params: MotionControlParams = {
       imageUrl: await fileToBase64(p.imagePath),
       videoUrl: await fileToBase64(p.videoPath),
-      characterOrientation: p.characterOrientation ?? "image",
-      mode: p.mode ?? "std",
-      modelName: p.modelName,
+      characterOrientation: safe.characterOrientation,
+      mode: safe.mode,
+      modelName: safe.modelName,
       prompt: p.prompt,
-      keepOriginalSound: p.keepOriginalSound,
+      keepOriginalSound: safe.keepOriginalSound,
     };
     return client.createMotionControl(params);
   } else if (job.type === "avatar") {
     const p = job.params as {
-      avatarId?: string;
-      avatarType?: "2d" | "3d";
-      voiceId?: string;
-      voiceLanguage?: string;
-      voiceSpeed?: number;
+      imagePath?: string;
+      avatarAudioPath?: string;
+      avatarAudioId?: string;
+      avatarSoundUrl?: string;
       avatarText?: string;
+      prompt?: string;
+      mode?: "std" | "pro";
     };
+    if (!p.imagePath) throw new Error("Avatar cell thiếu ảnh tham chiếu");
+    const audioId = p.avatarAudioId?.trim();
+    const soundUrl = p.avatarSoundUrl?.trim();
+    const soundFile = p.avatarAudioPath ? await fileToBase64(p.avatarAudioPath) : soundUrl || undefined;
+    if (!audioId && !soundFile) throw new Error("Avatar cell thiếu audio_id hoặc sound_file");
+    const safe = sanitizeKlingAvatarSettings(p);
     const params: AvatarParams = {
-      avatarId: p.avatarId ?? "",
-      avatarType: p.avatarType,
-      voiceId: p.voiceId ?? "",
-      voiceLanguage: p.voiceLanguage ?? "en",
-      voiceSpeed: p.voiceSpeed,
-      text: p.avatarText ?? "",
+      image: await fileToBase64(p.imagePath),
+      audioId: audioId || undefined,
+      soundFile: audioId ? undefined : soundFile,
+      prompt: p.prompt || p.avatarText || undefined,
+      mode: safe.mode,
     };
-    return client.createVirtualHuman(params);
+    return client.createAvatar(params);
   } else {
     return client.createLipSync(job.params as unknown as LipSyncParams);
   }

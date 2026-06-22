@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildAvatarBody,
   buildImage2VideoBody,
   buildLipSyncBody,
   buildMotionControlBody,
@@ -23,6 +24,10 @@ describe("buildImage2VideoBody", () => {
         modelName: "kling-v1",
         mode: "pro",
         duration: "10",
+        aspectRatio: "9:16",
+        sound: "on",
+        multiShot: true,
+        shotType: "intelligence",
         cfgScale: 0.5,
         callbackUrl: "https://cb",
       }),
@@ -33,6 +38,10 @@ describe("buildImage2VideoBody", () => {
       model_name: "kling-v1",
       mode: "pro",
       duration: "10",
+      aspect_ratio: "9:16",
+      sound: "on",
+      multi_shot: true,
+      shot_type: "intelligence",
       cfg_scale: 0.5,
       callback_url: "https://cb",
     });
@@ -114,6 +123,33 @@ describe("buildMotionControlBody", () => {
     expect(body).not.toHaveProperty("model_name");
     expect(body).not.toHaveProperty("prompt");
     expect(body).not.toHaveProperty("keep_original_sound");
+  });
+});
+
+describe("buildAvatarBody", () => {
+  it("maps avatar image2video fields to snake_case", () => {
+    expect(
+      buildAvatarBody({
+        image: "IMG",
+        soundFile: "AUDIO_B64",
+        prompt: "smile and wave",
+        mode: "pro",
+        callbackUrl: "https://cb",
+      }),
+    ).toEqual({
+      image: "IMG",
+      sound_file: "AUDIO_B64",
+      prompt: "smile and wave",
+      mode: "pro",
+      callback_url: "https://cb",
+    });
+  });
+
+  it("can send a Kling TTS audio_id instead of sound_file", () => {
+    expect(buildAvatarBody({ image: "IMG", audioId: "aud_123" })).toEqual({
+      image: "IMG",
+      audio_id: "aud_123",
+    });
   });
 });
 
