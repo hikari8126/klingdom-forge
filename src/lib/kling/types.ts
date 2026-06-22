@@ -26,6 +26,16 @@ export type MotionControlParams = {
   callbackUrl?: string;
 };
 
+export type AvatarParams = {
+  avatarId: string;
+  avatarType?: "2d" | "3d";
+  voiceId: string;
+  voiceLanguage: string;
+  voiceSpeed?: number; // 0.8–2.0, default 1.0
+  text: string;
+  callbackUrl?: string;
+};
+
 export type LipSyncParams = {
   mode: "text2video" | "audio2video";
   videoId?: string;

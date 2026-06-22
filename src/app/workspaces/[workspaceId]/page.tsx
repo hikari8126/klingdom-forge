@@ -9,7 +9,7 @@ import {
   createProjectAction,
   deleteProjectAction,
 } from "./projects/actions";
-import { addMemberAction, removeMemberAction } from "../actions";
+import { addMemberAction, removeMemberAction, renameWorkspaceAction, saveWorkspaceKlingKeyAction, clearWorkspaceKlingKeyAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,26 @@ export default async function WorkspaceDetailPage({
           <Button>🎬 Mở Studio →</Button>
         </Link>
       </div>
+
+      {/* Rename workspace */}
+      {canManage && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-lg font-medium text-white">Đổi tên</h2>
+          <Card>
+            <form action={renameWorkspaceAction} className="flex gap-2">
+              <input type="hidden" name="workspaceId" value={workspace.id} />
+              <TextInput
+                name="name"
+                defaultValue={workspace.name}
+                placeholder="Tên workspace"
+                required
+                className="flex-1"
+              />
+              <Button type="submit">Lưu</Button>
+            </form>
+          </Card>
+        </section>
+      )}
 
       {/* Projects */}
       <section className="mt-8">
@@ -81,6 +101,60 @@ export default async function WorkspaceDetailPage({
           ))}
         </div>
       </section>
+
+      {/* Kling API Key */}
+      {canManage && (
+        <section className="mt-10">
+          <h2 className="mb-3 text-lg font-medium text-white">Kling API Key</h2>
+          <Card>
+            {workspace.klingApiKeyEnc ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex-1 rounded-lg border border-border bg-black/30 px-3 py-2 font-mono text-sm text-muted">
+                    ••••••••••••••••••••••••••••••••
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-sm text-ok">
+                    <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+                    Đã cấu hình
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <form action={saveWorkspaceKlingKeyAction} className="flex flex-1 gap-2">
+                    <input type="hidden" name="workspaceId" value={workspace.id} />
+                    <TextInput
+                      name="apiKey"
+                      type="password"
+                      placeholder="Nhập API key mới để thay thế…"
+                      required
+                      className="flex-1"
+                    />
+                    <Button type="submit">Cập nhật</Button>
+                  </form>
+                  <form action={clearWorkspaceKlingKeyAction}>
+                    <input type="hidden" name="workspaceId" value={workspace.id} />
+                    <Button variant="ghost" type="submit">Xoá key</Button>
+                  </form>
+                </div>
+              </div>
+            ) : (
+              <form action={saveWorkspaceKlingKeyAction} className="flex gap-2">
+                <input type="hidden" name="workspaceId" value={workspace.id} />
+                <TextInput
+                  name="apiKey"
+                  type="password"
+                  placeholder="Nhập Kling API key của workspace…"
+                  required
+                  className="flex-1"
+                />
+                <Button type="submit">Lưu key</Button>
+              </form>
+            )}
+            <p className="mt-2 text-xs text-muted">
+              API key này được dùng cho mọi job trong workspace. Lưu một lần và giữ mãi cho đến khi bạn cập nhật.
+            </p>
+          </Card>
+        </section>
+      )}
 
       {/* Members */}
       <section className="mt-10">

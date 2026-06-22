@@ -21,5 +21,5 @@ export function canCreateProject(role: Role, membership: Membership): boolean {
 }
 
 export function canDeleteProject(role: Role, membership: Membership): boolean {
-  return role === "super_admin" || membership?.role === "manager";
+  return role === "super_admin" || membership !== null;
 }

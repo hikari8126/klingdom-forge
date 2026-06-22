@@ -7,15 +7,26 @@ import {
   uploadImagesAction,
   uploadVideosAction,
   createProjectAction,
+  renameProjectAction,
+  deleteProjectAction,
+  createBatchAction,
+  renameBatchAction,
+  deleteBatchAction,
   createCellAction,
   createMotionCellAction,
+  createAvatarCellAction,
   updateCellAction,
   updateMotionCellAction,
+  updateAvatarCellAction,
+  convertCellAction,
   duplicateCellAction,
   deleteCellAction,
   generateCellAction,
   generateAllAction,
   swapFramesAction,
+  deleteMultipleCellsAction,
+  generateMultipleCellsAction,
+  updateMultipleCellsModeAction,
 } from "./actions";
 
 export type CellView = {
@@ -33,18 +44,29 @@ export type CellView = {
   duration: string;
   characterOrientation: "image" | "video";
   keepOriginalSound: "yes" | "no";
+  avatarId: string;
+  avatarType: "2d" | "3d";
+  voiceId: string;
+  voiceLanguage: string;
+  voiceSpeed: number;
+  avatarText: string;
 };
 
 type AssetView = { id: string; filename: string; mimeType: string | null };
+
+type BatchView = { id: string; name: string; jobCount: number; createdAt: string };
 
 type Props = {
   workspaceId: string;
   workspaceName: string;
   userName: string;
+  userFullName: string;
   hasAccount: boolean;
   workerOnline: boolean;
   projects: { id: string; name: string }[];
   activeProjectId: string | null;
+  activeBatchId: string | null;
+  activeBatches: BatchView[];
   assets: AssetView[];
   cells: CellView[];
 };
@@ -61,6 +83,27 @@ const MODELS_MC: { value: string; label: string }[] = [
   { value: "kling-v2-6", label: "Kling 2.6" },
 ];
 const DURATIONS = ["3", "5", "7", "10", "15"];
+
+const VOICE_LANGUAGES = [
+  { value: "zh", label: "Chinese (ZH)" },
+  { value: "en", label: "English (EN)" },
+  { value: "ja", label: "Japanese (JA)" },
+  { value: "ko", label: "Korean (KO)" },
+  { value: "es", label: "Spanish (ES)" },
+  { value: "fr", label: "French (FR)" },
+  { value: "de", label: "German (DE)" },
+  { value: "ar", label: "Arabic (AR)" },
+  { value: "pt", label: "Portuguese (PT)" },
+];
+
+const VOICE_PRESETS = [
+  { value: "zhishiting_general", label: "Zhishiting (ZH, F)" },
+  { value: "zhiyu_general", label: "Zhiyu (ZH, M)" },
+  { value: "en-US-AriaNeural", label: "Aria (EN, F)" },
+  { value: "en-US-GuyNeural", label: "Guy (EN, M)" },
+  { value: "ja-JP-NanamiNeural", label: "Nanami (JA, F)" },
+  { value: "ko-KR-SunHiNeural", label: "SunHi (KO, F)" },
+];
 
 const ST: Record<JobStatus, { t: string; c: string }> = {
   draft: { t: "○ Nháp — chưa gửi", c: "text-muted" },
@@ -90,6 +133,29 @@ const THEMES = [
   { id: "slate", label: "Mono Slate", color: "#647890" },
 ];
 
+type CellTypeTab = "image2video" | "motioncontrol" | "avatar";
+
+function TypeTabs({ active, onChange }: { active: CellTypeTab; onChange: (t: CellTypeTab) => void }) {
+  const tabs: { id: CellTypeTab; label: string }[] = [
+    { id: "image2video", label: "Video Generation" },
+    { id: "motioncontrol", label: "Motion Control" },
+    { id: "avatar", label: "Avatar" },
+  ];
+  return (
+    <div className="flex items-center rounded-lg border border-border bg-surface-2 p-0.5 text-[11px] font-medium">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => { if (t.id !== active) onChange(t.id); }}
+          className={`rounded-md px-2.5 py-[5px] transition ${active === t.id ? "bg-accent/20 text-accent-soft" : "text-muted hover:text-white"}`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Studio(props: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -99,6 +165,9 @@ export default function Studio(props: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeTheme, setActiveTheme] = useState("teal");
   const [, start] = useTransition();
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
 
@@ -155,6 +224,8 @@ export default function Studio(props: Props) {
     return () => clearInterval(id);
   }, [anyActive, router]);
 
+  useEffect(() => { setSelectedCells(new Set()); }, [props.activeProjectId]);
+
   function switchProject(id: string) {
     router.push(`/workspaces/${props.workspaceId}/studio?p=${id}`);
   }
@@ -170,41 +241,110 @@ export default function Studio(props: Props) {
     if (!files || !files.length || !props.activeProjectId) return;
     const fd = new FormData();
     Array.from(files).forEach((f) => fd.append("files", f));
-    start(() => uploadImagesAction(props.workspaceId, props.activeProjectId!, fd));
+    start(() => uploadImagesAction(props.workspaceId, props.activeProjectId!, fd, props.activeBatchId ?? undefined));
   }
   function uploadVideos(files: FileList | null) {
     if (!files || !files.length || !props.activeProjectId) return;
     const fd = new FormData();
     Array.from(files).forEach((f) => fd.append("files", f));
-    start(() => uploadVideosAction(props.workspaceId, props.activeProjectId!, fd));
+    start(() => uploadVideosAction(props.workspaceId, props.activeProjectId!, fd, props.activeBatchId ?? undefined));
   }
   function handleCanvasDrop(assetId: string) {
-    if (!props.activeProjectId) return;
+    if (!props.activeProjectId || !props.activeBatchId) return;
     const asset = props.assets.find((a) => a.id === assetId);
     if (!asset) return;
-    // Video dropped → motion control cell needs a paired image; for now show prompt
-    // Image dropped → standard image2video cell
     if (asset.mimeType?.startsWith("video/")) {
       const imgId = imageAssets[0]?.id;
       if (!imgId) {
         alert("Hãy upload ít nhất một ảnh tham chiếu vào project trước khi tạo ô Motion Control.");
         return;
       }
-      start(() => createMotionCellAction(props.workspaceId, props.activeProjectId!, imgId, assetId));
+      start(() => createMotionCellAction(props.workspaceId, props.activeProjectId!, imgId, assetId, props.activeBatchId!));
     } else {
-      start(() => createCellAction(props.workspaceId, props.activeProjectId!, assetId));
+      start(() => createCellAction(props.workspaceId, props.activeProjectId!, assetId, props.activeBatchId!));
     }
   }
+
+  function handleCreateBatch(projectId: string) {
+    const name = window.prompt("Tên batch (VD: Gen ngày 22/06):");
+    if (name === null) return;
+    start(async () => {
+      const batchId = await createBatchAction(props.workspaceId, projectId, name.trim() || "Batch mới");
+      router.push(`/workspaces/${props.workspaceId}/studio?p=${projectId}&b=${batchId}`);
+    });
+  }
+  function handleRenameBatch(batchId: string, currentName: string) {
+    const name = window.prompt("Tên mới:", currentName);
+    if (!name || name === currentName) return;
+    start(() => renameBatchAction(props.workspaceId, batchId, name));
+  }
+  function handleDeleteBatch(batchId: string) {
+    if (!confirm("Xoá batch này? Tất cả video trong batch sẽ bị xoá.")) return;
+    start(async () => {
+      await deleteBatchAction(props.workspaceId, batchId);
+      if (batchId === props.activeBatchId && props.activeProjectId) {
+        router.push(`/workspaces/${props.workspaceId}/studio?p=${props.activeProjectId}`);
+      }
+    });
+  }
+  function handleRenameProject(projectId: string, currentName: string) {
+    const name = window.prompt("Tên mới:", currentName);
+    if (!name || name === currentName) return;
+    start(() => renameProjectAction(props.workspaceId, projectId, name));
+  }
+  function handleDeleteProject(projectId: string) {
+    if (!confirm("Xoá project này? Tất cả batch và video sẽ bị xoá.")) return;
+    start(async () => {
+      await deleteProjectAction(props.workspaceId, projectId);
+      if (projectId === props.activeProjectId) {
+        router.push(`/workspaces/${props.workspaceId}/studio`);
+      }
+    });
+  }
+
   const updI2V = (jobId: string, patch: Parameters<typeof updateCellAction>[2]) =>
     start(() => updateCellAction(props.workspaceId, jobId, patch));
   const updMC = (jobId: string, patch: Parameters<typeof updateMotionCellAction>[2]) =>
     start(() => updateMotionCellAction(props.workspaceId, jobId, patch));
+  const updAvatar = (jobId: string, patch: Parameters<typeof updateAvatarCellAction>[2]) =>
+    start(() => updateAvatarCellAction(props.workspaceId, jobId, patch));
+  const conv = (jobId: string, type: CellTypeTab) =>
+    start(() => convertCellAction(props.workspaceId, jobId, type));
+
+  function toggleSelect(id: string) {
+    setSelectedCells((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function deselectAll() { setSelectedCells(new Set()); }
+  function selectAllCells() { setSelectedCells(new Set(props.cells.map((c) => c.id))); }
+  function handleBulkDelete() {
+    const ids = Array.from(selectedCells);
+    if (!ids.length) return;
+    if (!confirm(`Xoá ${ids.length} ô đã chọn?`)) return;
+    deselectAll();
+    start(() => deleteMultipleCellsAction(props.workspaceId, ids));
+  }
+  function handleBulkGenerate() {
+    const ids = Array.from(selectedCells);
+    if (!ids.length) return;
+    deselectAll();
+    start(() => generateMultipleCellsAction(props.workspaceId, ids));
+  }
+  function handleBulkMode(mode: string) {
+    const updates = props.cells
+      .filter((c) => selectedCells.has(c.id))
+      .map((c) => ({ id: c.id, type: c.type, mode }));
+    if (!updates.length) return;
+    start(() => updateMultipleCellsModeAction(props.workspaceId, updates));
+  }
 
   return (
     <div className="flex h-screen flex-col">
       {/* ── HEADBAR ── */}
       <header className="flex h-[54px] flex-none items-center gap-4 border-b border-border bg-black/70 px-4 backdrop-blur-md">
-        {/* brand */}
         <div className="flex items-center gap-2.5 font-semibold tracking-wide">
           <span
             className="grid h-[26px] w-[26px] flex-none place-items-center rounded-lg"
@@ -215,7 +355,6 @@ export default function Studio(props: Props) {
           <span className="text-sm">KlingDom Forge</span>
         </div>
 
-        {/* workspace chip */}
         <div className="flex items-center gap-2 rounded-full border border-border px-[11px] py-[5px] text-[12.5px] text-muted">
           <span className="h-1.5 w-1.5 flex-none rounded-full bg-ok" style={{ boxShadow: "0 0 8px rgb(var(--color-ok)/0.8)" }} />
           Workspace <span className="ml-1 font-semibold text-white">{props.workspaceName}</span>
@@ -223,7 +362,6 @@ export default function Studio(props: Props) {
 
         <div className="flex-1" />
 
-        {/* worker status */}
         <div
           className={`mono flex items-center gap-1.5 rounded-full border px-3 py-1 ${props.workerOnline ? "border-ok/40 text-ok" : "border-bad/50 text-bad"}`}
           title={props.workerOnline ? "Worker đang chạy — job sẽ được xử lý" : "Worker offline — chạy `npm run worker`"}
@@ -232,13 +370,11 @@ export default function Studio(props: Props) {
           {props.workerOnline ? "Worker online" : "Worker offline"}
         </div>
 
-        {/* usage pill */}
         <div className="mono flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-muted">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M21 21l-3.5-3.5" /></svg>
           {props.cells.length} ô{activeCells.length > 0 && ` · ${activeCells.length} đang chạy`}
         </div>
 
-        {/* avatar */}
         <div
           className="grid h-[30px] w-[30px] flex-none place-items-center rounded-full text-[11px] font-bold text-[#06222c]"
           style={{ background: "conic-gradient(from 200deg,rgb(var(--color-accent)),rgb(var(--color-ok)),rgb(var(--color-yellow)),rgb(var(--color-accent)))" }}
@@ -247,7 +383,7 @@ export default function Studio(props: Props) {
         </div>
       </header>
 
-      {/* ── BODY (sidebar + canvas) ── */}
+      {/* ── BODY ── */}
       <div className="flex min-h-0 flex-1">
         {/* SIDEBAR */}
         <aside className="flex w-[300px] flex-col border-r border-border bg-surface/40">
@@ -272,68 +408,136 @@ export default function Studio(props: Props) {
               const on = p.id === props.activeProjectId;
               return (
                 <div key={p.id} className={`mb-1 rounded-xl border ${on ? "border-accent/40 bg-accent/10" : "border-transparent"}`}>
-                  <button
-                    onClick={() => switchProject(p.id)}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/5"
-                  >
-                    <span className="flex-1 truncate text-white">{p.name}</span>
-                  </button>
+                  {/* Project row with rename/delete on hover */}
+                  <div className="group flex items-center gap-1 rounded-xl px-1 py-0.5">
+                    <button
+                      onClick={() => switchProject(p.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-white/5"
+                    >
+                      <span className="flex-1 truncate text-white">{p.name}</span>
+                    </button>
+                    <button
+                      onClick={() => handleRenameProject(p.id, p.name)}
+                      className="hidden h-6 w-6 flex-none items-center justify-center rounded text-muted hover:text-accent-soft group-hover:flex"
+                      title="Đổi tên project"
+                    >
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z" /></svg>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteProject(p.id)}
+                      className="hidden h-6 w-6 flex-none items-center justify-center rounded text-muted hover:text-bad group-hover:flex"
+                      title="Xoá project"
+                    >
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M9 6V4h6v2" /></svg>
+                    </button>
+                  </div>
+
                   {on && (
                     <div className="px-3 pb-3">
                       <input ref={imgRef} type="file" accept="image/*" multiple hidden onChange={(e) => { uploadImages(e.target.files); e.currentTarget.value = ""; }} />
                       <input ref={vidRef} type="file" accept="video/mp4,video/quicktime,.mp4,.mov" multiple hidden onChange={(e) => { uploadVideos(e.target.files); e.currentTarget.value = ""; }} />
 
-                      {/* image section */}
-                      <div className="mb-2 flex items-center gap-2">
-                        <button onClick={() => imgRef.current?.click()} className="flex-1 rounded-lg border border-dashed border-border py-2 text-xs text-muted hover:border-accent hover:text-accent-soft">
-                          + Thêm ảnh
-                        </button>
-                        <button onClick={toggleView} title="Đổi cách xem" className="rounded-lg border border-border px-2 py-2 text-muted hover:border-accent hover:text-accent-soft">
-                          {view === "grid" ? (
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-                          ) : (
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
-                          )}
-                        </button>
-                      </div>
-                      {view === "grid" ? (
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {imageAssets.map((a) => (
-                            <img key={a.id} src={assetUrl(a.id)} alt={a.filename} title={a.filename} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="aspect-[3/4] w-full cursor-grab rounded-lg border border-border object-cover transition hover:-translate-y-0.5 hover:border-accent" />
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-1.5">
-                          {imageAssets.map((a) => (
-                            <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent">
-                              <img src={assetUrl(a.id)} alt="" className="h-8 w-6 flex-none rounded object-cover" />
-                              <span className="truncate text-xs text-white">{a.filename}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {imageAssets.length === 0 && <p className="mt-1 text-center text-[11px] text-muted">Chưa có ảnh.</p>}
-
-                      {/* video section */}
-                      <div className="mt-3 border-t border-border pt-2">
+                      {/* ── Batches ── */}
+                      <div>
                         <div className="mb-1.5 flex items-center justify-between">
-                          <span className="mono text-muted">Video MC</span>
-                          <button onClick={() => vidRef.current?.click()} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
-                            + Thêm video
+                          <span className="mono text-muted">Batches</span>
+                          <button
+                            onClick={() => handleCreateBatch(p.id)}
+                            className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft"
+                          >
+                            + New
                           </button>
                         </div>
-                        <div className="flex flex-col gap-1">
-                          {videoAssets.map((a) => (
-                            <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent-soft">
-                              <span className="grid h-6 w-6 flex-none place-items-center rounded bg-white/5 text-accent-soft">
-                                <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                              </span>
-                              <span className="truncate text-xs text-white">{a.filename}</span>
+                        <div className="flex flex-col gap-0.5">
+                          {props.activeBatches.map((b) => (
+                            <div
+                              key={b.id}
+                              className={`group/batch flex items-center gap-1 rounded-lg px-1.5 py-1 ${b.id === props.activeBatchId ? "border border-accent/40 bg-accent/15" : "hover:bg-white/5"}`}
+                            >
+                              <button
+                                onClick={() => router.push(`/workspaces/${props.workspaceId}/studio?p=${p.id}&b=${b.id}`)}
+                                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                              >
+                                <span className={`h-1.5 w-1.5 flex-none rounded-full ${b.id === props.activeBatchId ? "bg-accent-soft" : "bg-border"}`} />
+                                <span className="truncate text-xs text-white">{b.name}</span>
+                                <span className="ml-auto flex-none text-[9px] text-muted">{b.jobCount}</span>
+                              </button>
+                              <button
+                                onClick={() => handleRenameBatch(b.id, b.name)}
+                                className="hidden h-5 w-5 flex-none items-center justify-center rounded text-muted hover:text-accent-soft group-hover/batch:flex"
+                                title="Đổi tên batch"
+                              >
+                                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z" /></svg>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteBatch(b.id)}
+                                className="hidden h-5 w-5 flex-none items-center justify-center rounded text-muted hover:text-bad group-hover/batch:flex"
+                                title="Xoá batch"
+                              >
+                                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M9 6V4h6v2" /></svg>
+                              </button>
                             </div>
                           ))}
-                          {videoAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có video.</p>}
+                          {props.activeBatches.length === 0 && (
+                            <p className="py-1 text-center text-[11px] text-muted">Chưa có batch nào.</p>
+                          )}
                         </div>
                       </div>
+
+                      {/* ── Assets của batch đang chọn ── */}
+                      {props.activeBatchId && (
+                        <div className="mt-2 border-t border-border pt-2">
+                          <div className="mb-2 flex items-center gap-2">
+                            <button onClick={() => imgRef.current?.click()} className="flex-1 rounded-lg border border-dashed border-border py-2 text-xs text-muted hover:border-accent hover:text-accent-soft">
+                              + Thêm ảnh
+                            </button>
+                            <button onClick={toggleView} title="Đổi cách xem" className="rounded-lg border border-border px-2 py-2 text-muted hover:border-accent hover:text-accent-soft">
+                              {view === "grid" ? (
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+                              ) : (
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
+                              )}
+                            </button>
+                          </div>
+                          {view === "grid" ? (
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {imageAssets.map((a) => (
+                                <img key={a.id} src={assetUrl(a.id)} alt={a.filename} title={a.filename} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="aspect-[3/4] w-full cursor-grab rounded-lg border border-border object-cover transition hover:-translate-y-0.5 hover:border-accent" />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1.5">
+                              {imageAssets.map((a) => (
+                                <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent">
+                                  <img src={assetUrl(a.id)} alt="" className="h-8 w-6 flex-none rounded object-cover" />
+                                  <span className="truncate text-xs text-white">{a.filename}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {imageAssets.length === 0 && <p className="mt-1 text-center text-[11px] text-muted">Chưa có ảnh.</p>}
+
+                          <div className="mt-2 border-t border-border pt-2">
+                            <div className="mb-1.5 flex items-center justify-between">
+                              <span className="mono text-muted">Video MC</span>
+                              <button onClick={() => vidRef.current?.click()} className="rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent-soft">
+                                + Thêm video
+                              </button>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              {videoAssets.map((a) => (
+                                <div key={a.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/asset", a.id)} className="flex cursor-grab items-center gap-2 rounded-lg border border-border p-1.5 hover:border-accent-soft">
+                                  <span className="grid h-6 w-6 flex-none place-items-center rounded bg-white/5 text-accent-soft">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                                  </span>
+                                  <span className="truncate text-xs text-white">{a.filename}</span>
+                                </div>
+                              ))}
+                              {videoAssets.length === 0 && <p className="text-center text-[11px] text-muted">Chưa có video.</p>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -353,10 +557,18 @@ export default function Studio(props: Props) {
         <main className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-start justify-between gap-4 px-7 py-5">
             <div>
-              <div className="mono text-muted">{props.workspaceName.toUpperCase()} / {active ? active.name.toUpperCase() : "—"}</div>
-              <h1 className="mt-1 text-xl font-semibold">{active ? active.name : "Chưa có project"}</h1>
+              <div className="mono text-muted">
+                {props.workspaceName.toUpperCase()}
+                {active && <> / {active.name.toUpperCase()}</>}
+                {props.activeBatchId && props.activeBatches.length > 0 && (
+                  <> / {(props.activeBatches.find((b) => b.id === props.activeBatchId)?.name ?? "").toUpperCase()}</>
+                )}
+              </div>
+              <h1 className="mt-1 text-xl font-semibold">
+                {!active ? "Chưa có project" : (props.activeBatches.find((b) => b.id === props.activeBatchId)?.name ?? active.name)}
+              </h1>
             </div>
-            {active && (
+            {active && props.activeBatchId && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => collapseAll(!props.cells.every((c) => collapsed[c.id]))}
@@ -365,7 +577,19 @@ export default function Studio(props: Props) {
                   Thu/Mở tất cả
                 </button>
                 <button
-                  onClick={() => start(() => generateAllAction(props.workspaceId, active.id))}
+                  onClick={() => selectedCells.size > 0 ? deselectAll() : selectAllCells()}
+                  className={`rounded-full border px-3 py-2 text-sm transition ${selectedCells.size > 0 ? "border-accent/50 text-accent-soft hover:border-accent" : "border-border text-muted hover:border-accent hover:text-white"}`}
+                >
+                  {selectedCells.size > 0 ? `☑ ${selectedCells.size} đã chọn` : "Chọn tất cả"}
+                </button>
+                <button
+                  onClick={() => start(() => createAvatarCellAction(props.workspaceId, active.id, props.activeBatchId!))}
+                  className="rounded-full border border-yellow/40 px-3 py-2 text-sm text-yellow hover:border-yellow hover:bg-yellow/10"
+                >
+                  + Avatar
+                </button>
+                <button
+                  onClick={() => start(() => generateAllAction(props.workspaceId, active.id, props.activeBatchId!))}
                   className="rounded-full bg-gradient-to-b from-[#7fe3a8] to-ok px-4 py-2 text-sm font-semibold text-[#04241a] shadow-[0_6px_20px_-6px_rgba(95,208,142,.6)] hover:brightness-110"
                 >
                   ▶ Generate tất cả
@@ -375,7 +599,7 @@ export default function Studio(props: Props) {
           </div>
 
           <div
-            onDragOver={(e) => { if (active) { e.preventDefault(); setImgOver(true); } }}
+            onDragOver={(e) => { if (active && props.activeBatchId) { e.preventDefault(); setImgOver(true); } }}
             onDragLeave={() => setImgOver(false)}
             onDrop={(e) => { setImgOver(false); const id = e.dataTransfer.getData("text/asset"); if (id) { e.preventDefault(); handleCanvasDrop(id); } }}
             className="min-h-0 flex-1 overflow-y-auto px-7 pb-10"
@@ -393,49 +617,108 @@ export default function Studio(props: Props) {
               </div>
             )}
             {!active && <p className="text-muted">Tạo một project ở thanh bên để bắt đầu.</p>}
-            {active && props.cells.length === 0 && (
+            {active && !props.activeBatchId && (
+              <div className="flex h-[70%] min-h-[320px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border text-center">
+                <div className="grid h-14 w-14 place-items-center rounded-2xl bg-white/5 text-muted">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" /></svg>
+                </div>
+                <h3 className="font-semibold text-white">Chưa có batch nào</h3>
+                <p className="max-w-sm text-sm text-muted">Tạo một batch ở thanh bên để bắt đầu làm việc với project này.</p>
+                <button
+                  onClick={() => handleCreateBatch(active.id)}
+                  className="mt-1 rounded-full border border-accent/45 px-4 py-2 text-sm font-medium text-accent-soft hover:border-accent hover:bg-accent/10"
+                >
+                  + Tạo batch đầu tiên
+                </button>
+              </div>
+            )}
+            {active && props.activeBatchId && props.cells.length === 0 && (
               <div className={`flex h-[70%] min-h-[320px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed text-center ${imgOver ? "border-accent bg-accent/10" : "border-border"}`}>
                 <div className="grid h-14 w-14 place-items-center rounded-2xl bg-white/5 text-accent-soft">
                   <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M3 14l4-4 5 5 3-3 6 6" /><circle cx="8.5" cy="8.5" r="1.6" /></svg>
                 </div>
                 <h3 className="font-semibold text-white">Vùng làm việc trống</h3>
-                <p className="max-w-sm text-sm text-muted">Kéo ảnh → ô Image→Video. Kéo video → ô Motion Control.</p>
+                <p className="max-w-sm text-sm text-muted">Kéo ảnh → ô Video Generation. Kéo video → ô Motion Control. Hoặc bấm "+ Avatar".</p>
+              </div>
+            )}
+
+            {selectedCells.size > 0 && (
+              <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-accent/45 bg-surface/95 px-4 py-2.5 shadow-lg backdrop-blur-sm">
+                <span className="mono text-sm font-semibold text-accent-soft">{selectedCells.size} ô đã chọn</span>
+                <div className="flex-1" />
+                <button
+                  onClick={() => selectAllCells()}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:border-accent hover:text-white"
+                >
+                  Chọn tất cả
+                </button>
+                <button
+                  onClick={handleBulkGenerate}
+                  className="rounded-lg bg-gradient-to-b from-[#7fe3a8] to-ok px-3 py-1.5 text-xs font-bold text-[#04241a] hover:brightness-110"
+                >
+                  ▶ Generate
+                </button>
+                <div className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-2 p-0.5">
+                  <span className="mono px-1.5 text-[9px] text-muted">Mode:</span>
+                  {["std", "pro", "4k"].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => handleBulkMode(m)}
+                      className="rounded-md px-2 py-1 text-[10.5px] font-semibold text-muted hover:bg-accent/20 hover:text-accent-soft"
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={handleBulkDelete}
+                  className="rounded-lg border border-bad/50 px-3 py-1.5 text-xs text-bad hover:border-bad hover:bg-bad/10"
+                >
+                  Xoá
+                </button>
+                <button
+                  onClick={deselectAll}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:border-accent hover:text-white"
+                >
+                  ✕ Bỏ chọn
+                </button>
               </div>
             )}
 
             <div className="space-y-3.5">
-              {props.cells.map((c) =>
-                c.type === "motioncontrol" ? (
-                  <MotionCell
-                    key={c.id}
-                    cell={c}
-                    imageAssets={imageAssets}
-                    videoAssets={videoAssets}
-                    collapsed={!!collapsed[c.id]}
-                    onToggle={() => toggleCollapse(c.id)}
-                    onField={(patch) => updMC(c.id, patch)}
-                    onGenerate={() => start(() => generateCellAction(props.workspaceId, c.id))}
-                    onDup={() => start(() => duplicateCellAction(props.workspaceId, c.id))}
-                    onDel={() => start(() => deleteCellAction(props.workspaceId, c.id))}
-                  />
-                ) : (
+              {props.cells.map((c) => {
+                const shared = {
+                  key: c.id,
+                  cell: c,
+                  collapsed: !!collapsed[c.id],
+                  selected: selectedCells.has(c.id),
+                  onSelect: () => toggleSelect(c.id),
+                  onToggle: () => toggleCollapse(c.id),
+                  onGenerate: () => start(() => generateCellAction(props.workspaceId, c.id)),
+                  onDup: () => start(() => duplicateCellAction(props.workspaceId, c.id)),
+                  onDel: () => start(() => deleteCellAction(props.workspaceId, c.id)),
+                  onConvert: (t: CellTypeTab) => conv(c.id, t),
+                  onPreview: (url: string) => { setPreviewUrl(url); setPreviewOpen(true); },
+                };
+                if (c.type === "motioncontrol") {
+                  return <MotionCell {...shared} imageAssets={imageAssets} videoAssets={videoAssets} onField={(p) => updMC(c.id, p)} />;
+                }
+                if (c.type === "avatar") {
+                  return <AvatarCell {...shared} onField={(p) => updAvatar(c.id, p)} />;
+                }
+                return (
                   <Cell
-                    key={c.id}
-                    cell={c}
-                    collapsed={!!collapsed[c.id]}
-                    onToggle={() => toggleCollapse(c.id)}
-                    onField={(patch) => updI2V(c.id, patch)}
+                    {...shared}
+                    onField={(p) => updI2V(c.id, p)}
                     onSetEnd={(assetId) => updI2V(c.id, { endAssetId: assetId })}
                     onSwap={() => start(() => swapFramesAction(props.workspaceId, c.id))}
-                    onGenerate={() => start(() => generateCellAction(props.workspaceId, c.id))}
-                    onDup={() => start(() => duplicateCellAction(props.workspaceId, c.id))}
-                    onDel={() => start(() => deleteCellAction(props.workspaceId, c.id))}
                   />
-                )
-              )}
+                );
+              })}
             </div>
           </div>
         </main>
+        <PreviewSidebar url={previewUrl} open={previewOpen} onToggle={() => setPreviewOpen((v) => !v)} />
       </div>
 
       {/* SETTINGS MODAL */}
@@ -457,8 +740,6 @@ export default function Studio(props: Props) {
                   <button onClick={() => view !== "list" && toggleView()} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${view === "list" ? "bg-accent text-[#04212c]" : "text-muted"}`}>List</button>
                 </div>
               </div>
-
-              {/* theme presets */}
               <div className="border-b border-border py-4">
                 <div className="mb-3 text-sm font-medium">Màu theme</div>
                 <div className="grid grid-cols-2 gap-2">
@@ -475,7 +756,6 @@ export default function Studio(props: Props) {
                   ))}
                 </div>
               </div>
-
               <button
                 onClick={() => router.push(`/workspaces/${props.workspaceId}`)}
                 className="flex w-full items-center justify-between py-3 text-left hover:text-accent-soft"
@@ -496,18 +776,12 @@ export default function Studio(props: Props) {
 
 // ── Image→Video Cell ──────────────────────────────────────────────────────────
 function Cell({
-  cell,
-  collapsed,
-  onToggle,
-  onField,
-  onSetEnd,
-  onSwap,
-  onGenerate,
-  onDup,
-  onDel,
+  cell, collapsed, selected, onSelect, onToggle, onField, onSetEnd, onSwap, onGenerate, onDup, onDel, onConvert, onPreview,
 }: {
   cell: CellView;
   collapsed: boolean;
+  selected: boolean;
+  onSelect: () => void;
   onToggle: () => void;
   onField: (patch: Parameters<typeof updateCellAction>[2]) => void;
   onSetEnd: (assetId: string) => void;
@@ -515,13 +789,35 @@ function Cell({
   onGenerate: () => void;
   onDup: () => void;
   onDel: () => void;
+  onConvert: (t: CellTypeTab) => void;
+  onPreview: (url: string) => void;
 }) {
   const [endOver, setEndOver] = useState(false);
   const st = ST[cell.status];
   const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
 
+  const selBox = (
+    <button
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      title={selected ? "Bỏ chọn" : "Chọn ô này"}
+      className={`flex w-5 flex-none items-center justify-center self-stretch transition ${selected ? "text-accent-soft" : "text-border/60 hover:text-muted"}`}
+    >
+      {selected ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="1" y="1" width="14" height="14" rx="2.5" fillOpacity="0.25" fill="currentColor" />
+          <rect x="1" y="1" width="14" height="14" rx="2.5" />
+          <path d="M4 8.5l2.5 2.5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="1" y="1" width="14" height="14" rx="2.5" />
+        </svg>
+      )}
+    </button>
+  );
+
   const handle = (
-    <button onClick={onToggle} title={collapsed ? "Mở rộng" : "Thu gọn"} className="flex w-6 flex-none items-center justify-center self-stretch border-r border-border text-muted hover:text-accent-soft">
+    <button onClick={(e) => { e.stopPropagation(); onToggle(); }} className="flex w-6 flex-none items-center justify-center self-stretch border-r border-border text-muted hover:text-accent-soft">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: collapsed ? "none" : "rotate(90deg)" }}><path d="M9 6l6 6-6 6" /></svg>
     </button>
   );
@@ -529,18 +825,26 @@ function Cell({
   if (collapsed) {
     return (
       <div className="overflow-x-auto">
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-2.5">
+        <div
+          onClick={onSelect}
+          className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-surface p-2.5 transition ${selected ? "border-accent/60 bg-accent/5" : "border-border hover:border-border/80"}`}
+        >
+          {selBox}
           {handle}
-          <img src={assetUrl(cell.startAssetId)} alt="" className="h-14 w-10 flex-none rounded-md border border-border object-cover" />
+          {cell.startAssetId ? (
+            <img src={assetUrl(cell.startAssetId)} alt="" className="h-14 w-10 flex-none rounded-md border border-border object-cover" />
+          ) : (
+            <div className="h-14 w-10 flex-none rounded-md border border-dashed border-border" />
+          )}
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-white">{cell.prompt || "(chưa có prompt)"}</div>
             <div className="mono mt-0.5 text-[10px] text-muted">{cell.modelName} · {cell.duration}s · {cell.mode}</div>
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
-            <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="flex-none text-accent-soft" title="Xem video">
+            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-            </a>
+            </button>
           )}
         </div>
       </div>
@@ -549,11 +853,19 @@ function Cell({
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex min-w-[1060px] items-stretch rounded-xl border border-border bg-surface p-3">
+      <div className={`flex min-w-[1060px] items-stretch rounded-xl border bg-surface p-3 transition ${selected ? "border-accent/60 bg-accent/5" : "border-border"}`}>
+        {selBox}
         {handle}
         {/* frames */}
         <div className="relative ml-3 flex flex-none items-center gap-1.5">
-          <img src={assetUrl(cell.startAssetId)} alt="start" className="h-[156px] w-[118px] flex-none rounded-lg border border-border object-cover" />
+          {cell.startAssetId ? (
+            <img src={assetUrl(cell.startAssetId)} alt="start" className="h-[156px] w-[118px] flex-none rounded-lg border border-border object-cover" />
+          ) : (
+            <div className="flex h-[156px] w-[118px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border text-center text-[10px] text-muted">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
+              Kéo ảnh vào
+            </div>
+          )}
           {cell.endAssetId ? (
             <img src={assetUrl(cell.endAssetId)} alt="end" className="h-[156px] w-[118px] flex-none rounded-lg border border-border object-cover" />
           ) : (
@@ -568,7 +880,7 @@ function Cell({
             </div>
           )}
           {cell.endAssetId && (
-            <button onClick={onSwap} title="Hoán đổi start/end" className="absolute left-1/2 top-1/2 z-10 grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-[#0d1116] text-white shadow-lg hover:border-accent hover:text-accent-soft">
+            <button onClick={onSwap} className="absolute left-1/2 top-1/2 z-10 grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-[#0d1116] text-white shadow-lg hover:border-accent hover:text-accent-soft">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 7h11l-3-3M16 17H5l3 3" /></svg>
             </button>
           )}
@@ -578,7 +890,8 @@ function Cell({
 
         {/* controls */}
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-          <div className="flex flex-wrap gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <TypeTabs active="image2video" onChange={onConvert} />
             <Field label="Model">
               <select defaultValue={cell.modelName} onChange={(e) => onField({ modelName: e.target.value })} className="kf-select">
                 {MODELS_I2V.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -589,7 +902,7 @@ function Cell({
                 {DURATIONS.map((d) => <option key={d} value={d}>{d} giây</option>)}
               </select>
             </Field>
-            <Field label="Mode">
+            <Field label="Quality">
               <select defaultValue={cell.mode} onChange={(e) => onField({ mode: e.target.value as "std" | "pro" | "4k" })} className="kf-select">
                 <option value="std">Standard</option>
                 <option value="pro">Professional</option>
@@ -619,13 +932,16 @@ function Cell({
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* video result */}
+        {/* result */}
         <div className="flex w-36 flex-none items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2">
           {cell.status === "succeeded" && cell.resultUrl ? (
-            <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="flex h-full w-full flex-col items-center justify-center gap-2 text-accent-soft">
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
+              <button onClick={() => onPreview(cell.resultUrl!)} className="flex flex-col items-center gap-1.5 text-accent-soft hover:text-white">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-              <span className="text-xs underline">Xem video</span>
-            </a>
+                <span className="text-xs">Xem video</span>
+              </button>
+              <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="text-[10px] text-muted hover:text-white" title="Mở trong tab mới">↗ tab mới</a>
+            </div>
           ) : (
             <span className={`mono px-2 text-center ${st.c}`}>{st.t}</span>
           )}
@@ -637,33 +953,49 @@ function Cell({
 
 // ── Motion Control Cell ───────────────────────────────────────────────────────
 function MotionCell({
-  cell,
-  imageAssets,
-  videoAssets,
-  collapsed,
-  onToggle,
-  onField,
-  onGenerate,
-  onDup,
-  onDel,
+  cell, imageAssets, videoAssets, collapsed, selected, onSelect, onToggle, onField, onGenerate, onDup, onDel, onConvert, onPreview,
 }: {
   cell: CellView;
   imageAssets: AssetView[];
   videoAssets: AssetView[];
   collapsed: boolean;
+  selected: boolean;
+  onSelect: () => void;
   onToggle: () => void;
   onField: (patch: Parameters<typeof updateMotionCellAction>[2]) => void;
   onGenerate: () => void;
   onDup: () => void;
   onDel: () => void;
+  onConvert: (t: CellTypeTab) => void;
+  onPreview: (url: string) => void;
 }) {
   const [imgDropOver, setImgDropOver] = useState(false);
   const [vidDropOver, setVidDropOver] = useState(false);
   const st = ST[cell.status];
   const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
 
+  const selBox = (
+    <button
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      title={selected ? "Bỏ chọn" : "Chọn ô này"}
+      className={`flex w-5 flex-none items-center justify-center self-stretch transition ${selected ? "text-accent-soft" : "text-border/60 hover:text-muted"}`}
+    >
+      {selected ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="1" y="1" width="14" height="14" rx="2.5" fillOpacity="0.25" fill="currentColor" />
+          <rect x="1" y="1" width="14" height="14" rx="2.5" />
+          <path d="M4 8.5l2.5 2.5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="1" y="1" width="14" height="14" rx="2.5" />
+        </svg>
+      )}
+    </button>
+  );
+
   const handle = (
-    <button onClick={onToggle} title={collapsed ? "Mở rộng" : "Thu gọn"} className="flex w-6 flex-none items-center justify-center self-stretch border-r border-border text-muted hover:text-accent-soft">
+    <button onClick={(e) => { e.stopPropagation(); onToggle(); }} className="flex w-6 flex-none items-center justify-center self-stretch border-r border-border text-muted hover:text-accent-soft">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: collapsed ? "none" : "rotate(90deg)" }}><path d="M9 6l6 6-6 6" /></svg>
     </button>
   );
@@ -671,9 +1003,20 @@ function MotionCell({
   if (collapsed) {
     return (
       <div className="overflow-x-auto">
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-2.5" style={{ borderColor: "rgb(var(--color-accent)/0.35)", background: "rgb(var(--color-accent)/0.04)" }}>
+        <div
+          onClick={onSelect}
+          className="flex cursor-pointer items-center gap-3 rounded-xl border bg-surface p-2.5 transition"
+          style={selected
+            ? { borderColor: "rgb(var(--color-accent)/0.6)", background: "rgb(var(--color-accent)/0.08)" }
+            : { borderColor: "rgb(var(--color-accent)/0.35)", background: "rgb(var(--color-accent)/0.04)" }}
+        >
+          {selBox}
           {handle}
-          <img src={assetUrl(cell.startAssetId)} alt="" className="h-14 w-10 flex-none rounded-md border border-border object-cover" />
+          {cell.startAssetId ? (
+            <img src={assetUrl(cell.startAssetId)} alt="" className="h-14 w-10 flex-none rounded-md border border-border object-cover" />
+          ) : (
+            <div className="h-14 w-10 flex-none rounded-md border border-dashed border-border" />
+          )}
           <span className="mono flex-none rounded-md bg-accent/15 px-1.5 py-0.5 text-[9px] text-accent-soft">Motion Control</span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-white">{cell.prompt || "(chưa có prompt)"}</div>
@@ -681,9 +1024,9 @@ function MotionCell({
           </div>
           <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
           {cell.status === "succeeded" && cell.resultUrl && (
-            <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="flex-none text-accent-soft" title="Xem video">
+            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-            </a>
+            </button>
           )}
         </div>
       </div>
@@ -692,7 +1035,13 @@ function MotionCell({
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex min-w-[1060px] items-stretch rounded-xl border bg-surface p-3" style={{ borderColor: "rgb(var(--color-accent)/0.3)", background: "linear-gradient(135deg,rgb(var(--color-accent)/0.06),transparent)" }}>
+      <div
+        className="flex min-w-[1060px] items-stretch rounded-xl border bg-surface p-3 transition"
+        style={selected
+          ? { borderColor: "rgb(var(--color-accent)/0.6)", background: "linear-gradient(135deg,rgb(var(--color-accent)/0.1),transparent)" }
+          : { borderColor: "rgb(var(--color-accent)/0.3)", background: "linear-gradient(135deg,rgb(var(--color-accent)/0.06),transparent)" }}
+      >
+        {selBox}
         {handle}
 
         {/* ref image + ref video */}
@@ -704,8 +1053,7 @@ function MotionCell({
             onDrop={(e) => {
               e.preventDefault(); e.stopPropagation(); setImgDropOver(false);
               const id = e.dataTransfer.getData("text/asset");
-              const isImg = imageAssets.some((a) => a.id === id);
-              if (id && isImg) onField({ imageAssetId: id });
+              if (id && imageAssets.some((a) => a.id === id)) onField({ imageAssetId: id });
             }}
             className={`relative h-[130px] w-[100px] flex-none overflow-hidden rounded-lg border border-dashed ${imgDropOver ? "border-accent bg-accent/10" : "border-border"}`}
           >
@@ -726,8 +1074,7 @@ function MotionCell({
             onDrop={(e) => {
               e.preventDefault(); e.stopPropagation(); setVidDropOver(false);
               const id = e.dataTransfer.getData("text/asset");
-              const isVid = videoAssets.some((a) => a.id === id);
-              if (id && isVid) onField({ videoAssetId: id });
+              if (id && videoAssets.some((a) => a.id === id)) onField({ videoAssetId: id });
             }}
             className={`flex h-[100px] w-[100px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-[10px] ${vidDropOver ? "border-accent text-accent-soft bg-accent/10" : "border-border text-muted"}`}
           >
@@ -751,13 +1098,14 @@ function MotionCell({
 
         {/* controls */}
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-          <div className="flex flex-wrap gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <TypeTabs active="motioncontrol" onChange={onConvert} />
             <Field label="Model">
               <select defaultValue={cell.modelName} onChange={(e) => onField({ modelName: e.target.value })} className="kf-select">
                 {MODELS_MC.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </Field>
-            <Field label="Mode">
+            <Field label="Quality">
               <select defaultValue={cell.mode} onChange={(e) => onField({ mode: e.target.value as "std" | "pro" })} className="kf-select">
                 <option value="std">Standard</option>
                 <option value="pro">Professional</option>
@@ -799,13 +1147,194 @@ function MotionCell({
           <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
         </div>
 
-        {/* video result */}
+        {/* result */}
         <div className="flex w-36 flex-none items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2">
           {cell.status === "succeeded" && cell.resultUrl ? (
-            <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="flex h-full w-full flex-col items-center justify-center gap-2 text-accent-soft">
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
+              <button onClick={() => onPreview(cell.resultUrl!)} className="flex flex-col items-center gap-1.5 text-accent-soft hover:text-white">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-              <span className="text-xs underline">Xem video</span>
-            </a>
+                <span className="text-xs">Xem video</span>
+              </button>
+              <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="text-[10px] text-muted hover:text-white" title="Mở trong tab mới">↗ tab mới</a>
+            </div>
+          ) : (
+            <span className={`mono px-2 text-center ${st.c}`}>{st.t}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Avatar Cell ───────────────────────────────────────────────────────────────
+function AvatarCell({
+  cell, collapsed, selected, onSelect, onToggle, onField, onGenerate, onDup, onDel, onConvert, onPreview,
+}: {
+  cell: CellView;
+  collapsed: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
+  onField: (patch: Parameters<typeof updateAvatarCellAction>[2]) => void;
+  onGenerate: () => void;
+  onDup: () => void;
+  onDel: () => void;
+  onConvert: (t: CellTypeTab) => void;
+  onPreview: (url: string) => void;
+}) {
+  const st = ST[cell.status];
+  const busy = cell.status === "queued" || cell.status === "submitted" || cell.status === "processing";
+  const canGenerate = !busy && !!cell.avatarId && !!cell.voiceId && !!cell.avatarText;
+
+  const selBox = (
+    <button
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      title={selected ? "Bỏ chọn" : "Chọn ô này"}
+      className={`flex w-5 flex-none items-center justify-center self-stretch transition ${selected ? "text-yellow" : "text-border/60 hover:text-muted"}`}
+    >
+      {selected ? (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="1" y="1" width="14" height="14" rx="2.5" fillOpacity="0.25" fill="currentColor" />
+          <rect x="1" y="1" width="14" height="14" rx="2.5" />
+          <path d="M4 8.5l2.5 2.5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="1" y="1" width="14" height="14" rx="2.5" />
+        </svg>
+      )}
+    </button>
+  );
+
+  const handle = (
+    <button onClick={(e) => { e.stopPropagation(); onToggle(); }} className="flex w-6 flex-none items-center justify-center self-stretch border-r border-border text-muted hover:text-accent-soft">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ transform: collapsed ? "none" : "rotate(90deg)" }}><path d="M9 6l6 6-6 6" /></svg>
+    </button>
+  );
+
+  if (collapsed) {
+    return (
+      <div className="overflow-x-auto">
+        <div
+          onClick={onSelect}
+          className="flex cursor-pointer items-center gap-3 rounded-xl border bg-surface p-2.5 transition"
+          style={selected
+            ? { borderColor: "rgb(var(--color-yellow)/0.6)", background: "rgb(var(--color-yellow)/0.08)" }
+            : { borderColor: "rgb(var(--color-yellow)/0.35)", background: "rgb(var(--color-yellow)/0.04)" }}
+        >
+          {selBox}
+          {handle}
+          <span className="grid h-14 w-10 flex-none place-items-center rounded-md border border-dashed border-yellow/40 text-yellow/60">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" /></svg>
+          </span>
+          <span className="mono flex-none rounded-md bg-yellow/15 px-1.5 py-0.5 text-[9px] text-yellow">Avatar</span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm text-white">{cell.avatarText || "(chưa có văn bản)"}</div>
+            <div className="mono mt-0.5 text-[10px] text-muted">{cell.avatarId || "—"} · {cell.voiceId || "—"} · {cell.voiceLanguage}</div>
+          </div>
+          <span className={`mono flex-none text-[10.5px] ${st.c}`}>{st.t}</span>
+          {cell.status === "succeeded" && cell.resultUrl && (
+            <button onClick={(e) => { e.stopPropagation(); onPreview(cell.resultUrl!); }} className="flex-none text-accent-soft hover:text-white" title="Xem trong Preview Sidebar">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <div
+        className="flex min-w-[1060px] items-stretch rounded-xl border bg-surface p-3 transition"
+        style={selected
+          ? { borderColor: "rgb(var(--color-yellow)/0.6)", background: "linear-gradient(135deg,rgb(var(--color-yellow)/0.08),transparent)" }
+          : { borderColor: "rgb(var(--color-yellow)/0.3)", background: "linear-gradient(135deg,rgb(var(--color-yellow)/0.05),transparent)" }}
+      >
+        {selBox}
+        {handle}
+
+        {/* avatar icon placeholder */}
+        <div className="ml-3 flex h-[156px] w-[90px] flex-none flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-yellow/30 text-center text-[10px] text-yellow/60">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="12" cy="8" r="4.5" /><path d="M3 21c0-5 4-8.5 9-8.5s9 3.5 9 8.5" /></svg>
+          Avatar
+        </div>
+
+        <div className="mx-4 w-px flex-none bg-border" />
+
+        {/* controls */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <TypeTabs active="avatar" onChange={onConvert} />
+            <Field label="Avatar ID">
+              <input
+                defaultValue={cell.avatarId}
+                onBlur={(e) => { if (e.target.value !== cell.avatarId) onField({ avatarId: e.target.value }); }}
+                placeholder="e.g. avatar_anime_girl_01"
+                className="kf-select w-[160px] font-mono text-[11px]"
+              />
+            </Field>
+            <Field label="Avatar Type">
+              <select defaultValue={cell.avatarType} onChange={(e) => onField({ avatarType: e.target.value as "2d" | "3d" })} className="kf-select">
+                <option value="2d">2D</option>
+                <option value="3d">3D</option>
+              </select>
+            </Field>
+            <Field label="Voice">
+              <select defaultValue={cell.voiceId} onChange={(e) => onField({ voiceId: e.target.value })} className="kf-select w-[170px]">
+                <option value="">— chọn giọng —</option>
+                {VOICE_PRESETS.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Language">
+              <select defaultValue={cell.voiceLanguage} onChange={(e) => onField({ voiceLanguage: e.target.value })} className="kf-select">
+                {VOICE_LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Speed">
+              <input
+                type="number" min="0.8" max="2.0" step="0.1"
+                defaultValue={cell.voiceSpeed}
+                onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v !== cell.voiceSpeed) onField({ voiceSpeed: v }); }}
+                className="kf-select w-[64px]"
+              />
+            </Field>
+          </div>
+          <textarea
+            defaultValue={cell.avatarText}
+            onBlur={(e) => { if (e.target.value !== cell.avatarText) onField({ avatarText: e.target.value }); }}
+            placeholder="Văn bản avatar sẽ nói…"
+            className="min-h-[64px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
+          {(!cell.avatarId || !cell.voiceId || !cell.avatarText) && (
+            <p className="text-[10px] text-yellow/70">Cần điền Avatar ID, Voice và Văn bản để generate.</p>
+          )}
+        </div>
+
+        {/* actions */}
+        <div className="mx-4 flex w-[134px] flex-none flex-col gap-3.5">
+          <button
+            onClick={onGenerate}
+            disabled={!canGenerate}
+            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${busy ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : !canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+          >
+            {busy ? genLabel(cell.status) : !canGenerate ? "Thiếu thông tin" : genLabel(cell.status)}
+          </button>
+          <button onClick={onDup} className="rounded-lg border border-accent/50 bg-accent/15 px-1.5 py-2 text-[10.5px] font-semibold text-accent-soft hover:bg-accent/25">+ Biến thể</button>
+          <button onClick={onDel} className="rounded-lg border border-border px-1.5 py-2 text-[10.5px] text-muted hover:border-yellow hover:text-yellow">Xoá ô</button>
+        </div>
+
+        {/* result */}
+        <div className="flex w-36 flex-none items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2">
+          {cell.status === "succeeded" && cell.resultUrl ? (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
+              <button onClick={() => onPreview(cell.resultUrl!)} className="flex flex-col items-center gap-1.5 text-accent-soft hover:text-white">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                <span className="text-xs">Xem video</span>
+              </button>
+              <a href={cell.resultUrl} target="_blank" rel="noreferrer" className="text-[10px] text-muted hover:text-white" title="Mở trong tab mới">↗ tab mới</a>
+            </div>
           ) : (
             <span className={`mono px-2 text-center ${st.c}`}>{st.t}</span>
           )}
@@ -821,5 +1350,76 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mono text-[9px] text-muted">{label}</span>
       {children}
     </label>
+  );
+}
+
+// ── Preview Sidebar ───────────────────────────────────────────────────────────
+function PreviewSidebar({ url, open, onToggle }: { url: string | null; open: boolean; onToggle: () => void }) {
+  return (
+    <div
+      className="relative flex flex-none overflow-hidden border-l border-border bg-surface/40 transition-[width] duration-200"
+      style={{ width: open ? 320 : 36 }}
+    >
+      {/* Narrow strip — always visible */}
+      <div className="flex w-9 flex-none flex-col items-center gap-3 border-r border-border bg-surface/60 py-3">
+        <button
+          onClick={onToggle}
+          title={open ? "Thu gọn Preview" : "Mở Preview Sidebar"}
+          className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted transition hover:border-accent hover:text-accent-soft"
+        >
+          <svg
+            viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2"
+            style={{ transform: open ? "none" : "rotate(180deg)", transition: "transform 0.2s" }}
+          >
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+        {url && (
+          <span className="h-1.5 w-1.5 rounded-full bg-ok" style={{ boxShadow: "0 0 6px rgb(var(--color-ok)/0.8)" }} title="Video sẵn sàng" />
+        )}
+        {!open && (
+          <span
+            className="mono origin-center -rotate-90 whitespace-nowrap text-[9px] text-muted"
+            style={{ marginTop: 8 }}
+          >
+            Preview
+          </span>
+        )}
+      </div>
+
+      {/* Main panel — visible only when open */}
+      {open && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <span className="mono text-[11px] font-semibold text-accent-soft">Preview</span>
+            {url && (
+              <a href={url} target="_blank" rel="noreferrer" className="mono text-[10px] text-muted hover:text-white" title="Mở trong tab mới">
+                ↗
+              </a>
+            )}
+          </div>
+          <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto p-3">
+            {url ? (
+              <video
+                key={url}
+                src={url}
+                controls
+                autoPlay
+                className="w-full rounded-lg border border-border"
+                style={{ maxHeight: "calc(100vh - 180px)" }}
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-3 text-center text-muted">
+                <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" strokeWidth="1.2">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="M10 10l5 3-5 3z" />
+                </svg>
+                <p className="text-xs leading-relaxed">Bấm nút ▶ ở ô đã generate xong để preview tại đây</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

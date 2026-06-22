@@ -2,7 +2,7 @@ export { KlingClient } from "./client";
 export type { KlingClientOptions, KlingTaskKind, KlingFetch } from "./client";
 export { signKlingJwt } from "./jwt";
 export { classifyKlingError, type KlingErrorClass } from "./errors";
-export { buildImage2VideoBody, buildLipSyncBody, buildMotionControlBody, parseTaskResponse } from "./payloads";
+export { buildAvatarBody, buildImage2VideoBody, buildLipSyncBody, buildMotionControlBody, parseTaskResponse } from "./payloads";
 export * from "./types";
 
 import { KlingClient } from "./client";

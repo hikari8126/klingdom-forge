@@ -96,6 +96,11 @@ export async function attachAccountAndTask(jobId: string, klingAccountId: string
   await db.job.update({ where: { id: jobId }, data: { klingAccountId, klingTaskId } });
 }
 
+/** Attach only the Kling task ID (workspace-keyed jobs have no klingAccountId). */
+export async function attachTaskOnly(jobId: string, klingTaskId: string) {
+  await db.job.update({ where: { id: jobId }, data: { klingTaskId } });
+}
+
 /** Revert a claimed job to queued (e.g. submit failed / account unavailable). */
 export async function requeueJob(jobId: string, error?: string) {
   await db.job.update({

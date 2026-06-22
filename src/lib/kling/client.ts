@@ -1,14 +1,15 @@
 import { signKlingJwt } from "./jwt";
-import { buildImage2VideoBody, buildLipSyncBody, buildMotionControlBody, parseTaskResponse } from "./payloads";
+import { buildAvatarBody, buildImage2VideoBody, buildLipSyncBody, buildMotionControlBody, parseTaskResponse } from "./payloads";
 import {
   KlingError,
+  type AvatarParams,
   type Image2VideoParams,
   type LipSyncParams,
   type MotionControlParams,
   type KlingTask,
 } from "./types";
 
-export type KlingTaskKind = "image2video" | "lip-sync" | "motion-control";
+export type KlingTaskKind = "image2video" | "lip-sync" | "motion-control" | "virtual-human";
 
 /** Minimal fetch shape we depend on (injectable for testing). */
 export type KlingFetch = (
@@ -89,6 +90,10 @@ export class KlingClient {
 
   createMotionControl(params: MotionControlParams): Promise<KlingTask> {
     return this.request("POST", "/v1/videos/motion-control", buildMotionControlBody(params));
+  }
+
+  createVirtualHuman(params: AvatarParams): Promise<KlingTask> {
+    return this.request("POST", "/v1/videos/virtual-human", buildAvatarBody(params));
   }
 
   getTask(kind: KlingTaskKind, taskId: string): Promise<KlingTask> {

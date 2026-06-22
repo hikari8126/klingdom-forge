@@ -1,4 +1,4 @@
-import type { Image2VideoParams, LipSyncParams, MotionControlParams, KlingTask } from "./types";
+import type { AvatarParams, Image2VideoParams, LipSyncParams, MotionControlParams, KlingTask } from "./types";
 import { KlingError } from "./types";
 
 /** Build the image2video request body, omitting undefined fields. */
@@ -44,6 +44,20 @@ export function buildLipSyncBody(p: LipSyncParams): Record<string, unknown> {
   if (p.audioFile !== undefined) input.audio_file = p.audioFile;
   if (p.audioUrl !== undefined) input.audio_url = p.audioUrl;
   const body: Record<string, unknown> = { input };
+  if (p.callbackUrl !== undefined) body.callback_url = p.callbackUrl;
+  return body;
+}
+
+/** Build the virtual-human (avatar) request body (POST /v1/videos/virtual-human). */
+export function buildAvatarBody(p: AvatarParams): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    avatar_id: p.avatarId,
+    voice_id: p.voiceId,
+    voice_language: p.voiceLanguage,
+    text: p.text,
+  };
+  if (p.avatarType !== undefined) body.avatar_type = p.avatarType;
+  if (p.voiceSpeed !== undefined) body.voice_speed = p.voiceSpeed;
   if (p.callbackUrl !== undefined) body.callback_url = p.callbackUrl;
   return body;
 }
