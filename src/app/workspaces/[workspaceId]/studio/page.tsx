@@ -33,7 +33,7 @@ export default async function StudioPage({
   const projects = result.workspace.projects;
   const activeProject = projects.find((p) => p.id === searchParams.p) ?? projects[0] ?? null;
 
-  let assets: { id: string; filename: string; mimeType: string | null }[] = [];
+  let assets: { id: string; filename: string; mimeType: string | null; createdAt: string }[] = [];
   let cells: CellView[] = [];
   let batches: { id: string; name: string; jobCount: number; createdAt: string }[] = [];
   let activeBatchId: string | null = null;
@@ -57,6 +57,7 @@ export default async function StudioPage({
         id: a.id,
         filename: a.filename,
         mimeType: a.mimeType ?? null,
+        createdAt: a.createdAt.toISOString(),
       }));
     }
 
@@ -78,6 +79,7 @@ export default async function StudioPage({
               };
         return {
           id: j.id,
+          createdAt: j.createdAt.toISOString(),
           status: j.status,
           type: j.type,
           resultUrl: j.resultUrl,

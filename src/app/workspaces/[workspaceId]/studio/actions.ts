@@ -58,6 +58,14 @@ export async function deleteAssetAction(workspaceId: string, assetId: string) {
   rv(workspaceId);
 }
 
+export async function deleteAssetsAction(workspaceId: string, assetIds: string[]) {
+  const actor = await requireUser();
+  for (const id of assetIds) {
+    await deleteAsset(actor, id);
+  }
+  rv(workspaceId);
+}
+
 // ── Batch actions ─────────────────────────────────────────────────────────────
 
 export async function createBatchAction(workspaceId: string, projectId: string, name?: string) {
@@ -131,6 +139,28 @@ export async function importGoogleDriveAction(
 export async function createCellAction(workspaceId: string, projectId: string, startAssetId: string, batchId?: string) {
   const actor = await requireUser();
   await createCell(actor, projectId, startAssetId, batchId);
+  rv(workspaceId);
+}
+
+/** Upload dropped files into source assets AND create a Video Generation cell per image. */
+export async function uploadImagesAndCreateCellsAction(workspaceId: string, projectId: string, formData: FormData, batchId?: string) {
+  const actor = await requireUser();
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File);
+  for (const f of files) {
+    const buf = Buffer.from(await f.arrayBuffer());
+    const asset = await createAsset(actor, projectId, f.name, buf, batchId);
+    if (asset.mimeType?.startsWith("image/")) {
+      await createCell(actor, projectId, asset.id, batchId);
+    }
+  }
+  rv(workspaceId);
+}
+
+export async function createCellsAction(workspaceId: string, projectId: string, startAssetIds: string[], batchId?: string) {
+  const actor = await requireUser();
+  for (const startAssetId of startAssetIds) {
+    await createCell(actor, projectId, startAssetId, batchId);
+  }
   rv(workspaceId);
 }
 

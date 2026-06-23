@@ -13,6 +13,8 @@
   --color-border:    38 43 56;
   --color-muted:     140 153 166;
   --color-bad:       248 113 113;
+  --color-info:      96 165 250;
+  --color-violet:    180 130 255;
 
   /* Theme-switchable colors — Studio Teal default */
   --color-accent:      42 123 155;
