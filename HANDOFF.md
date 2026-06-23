@@ -1,7 +1,7 @@
-# KlingDom Forge — Handoff (2026-06-22)
+# KlingDom Forge — Handoff (2026-06-23)
 
-> Tiếp tục ở session mới. **Bản `v0.1.0` đã commit + push + tag** (`main @ 456d61a`).
-> Việc tiếp theo đã chốt: **Object storage R2** (mở khoá Motion Control). Bắt đầu ở mục 2.
+> Tiếp nối handoff 2026-06-22. Đã merge nhánh `ĐA` vào `main` + làm **Object storage R2 phần 1–2**.
+> Việc tiếp theo: **R2 phần 4** (dispatcher — mở khoá Motion Control) rồi **phần 5** (GC).
 
 ---
 
@@ -9,49 +9,81 @@
 - Internal Kling AI batch video studio, ~20 user dùng chung, shared key + central FIFO queue.
 - Stack: Next.js 14 (App Router) + Prisma/Postgres + worker daemon (`tsx src/worker`) + NextAuth v5 (Google, gate `@crossian.com`).
 - Chạy local: `npm run dev:all` (web :3000 + worker). Postgres localhost:5432/klingdom_forge.
-- Migrations đã apply tới: `user_last_workspace`. Prisma client đã generate.
+- Migrations đã apply tới: `storage_key_rename`. Prisma client đã generate.
+- Spec R2: `docs/superpowers/specs/2026-06-23-r2-object-storage-design.md`.
 
 ---
 
-## 1. Đã xong trong `v0.1.0` (5 đợt UI/feature, build sạch)
-- **Theme/UI**: fonts Geist (body) + Space Grotesk (heading) + JetBrains Mono (mono); `AppHeader` + `UserMenu` dùng chung mọi page; Dashboard/Workspaces/Login redesign; `<select>` polish toàn cục.
-- **Settings hợp nhất**: 1 panel mở qua avatar (portal ra `document.body` để không bị `backdrop-filter` của header giam `position:fixed`). Modules: **Role, Key, Workspace, Motion Library, Giao diện/theme**. Mở qua query `?settings=<module>&ws=<id>`.
-  - Đã **xóa** `/admin/kling-accounts`, `/admin/library`, và trang `/workspaces/[id]` (giờ `redirect` vào panel).
-  - **Workspace module**: dropdown chọn ws + "Tạo workspace" inline; Projects | divider phát sáng | Members; nút +add góc trên-phải mỗi cột.
-- **Multi-key**: thêm nhiều Kling key + dropdown gán key cho từng workspace (`Workspace.klingAccountId`). Dispatcher ưu tiên: account-được-gán → `klingApiKeyEnc` (legacy) → pool chung. Có bật/tắt + xóa key.
-- **Studio**: workspace switcher dropdown ở header; logo→`/`; nút Studio→workspace mở gần nhất (`User.lastWorkspaceId`); modal tạo project (bỏ `window.prompt`); xóa ảnh khỏi asset panel; gộp collapse/expand + toggle list/thumb; nút xóa ô đỏ; bỏ "+ Biến thể"; **ô = card header trên-trái (type tabs + collapse + select)**; ô collapse hiển thị tên file ảnh; checkbox select sáng rõ; **kéo-thả ảnh từ OS vào studio/ô → upload vào batch đang mở**.
-
-> Ghi chú: còn vài state cũ không dùng trong `Studio.tsx` (chỉ warning; repo không có eslint config nên build bỏ qua lint). `dashboard.ts` vẫn trả `activity` dù dashboard đã bỏ thẻ Hoạt động gần đây.
-
----
-
-## 2. 🔴 ƯU TIÊN: Object storage R2 — mở khoá Motion Control (ĐÃ CHỐT hướng #1)
-
-**Vấn đề Motion Control (gốc):** endpoint `POST /v1/videos/motion-control` nhận field `image_url` + `video_url` là **URL công khai** (Kling tự fetch từ server họ), KHÔNG nhận base64 — khác Image→Video (field `image` nhận base64 nên đang chạy tốt). Hiện `dispatcher.ts` gửi `fileToBase64(...)` vào 2 field này → fail. Thêm nữa video motion ≤100MB nên base64 (~+33%) không khả thi.
-
-**Hiện trạng storage:** asset lưu disk local (`uploads/<projectId>/<assetId>.ext`, `src/lib/uploads.ts` + `assets.ts`), serve qua `/api/assets/[id]` (có auth session) → localhost, Kling không với tới được.
-
-**Giải pháp đã chốt — Cloudflare R2 (S3-compatible, egress-free):**
-- Lớp `StorageProvider` viết theo **API S3** (`@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`). Env: `S3_ENDPOINT / S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY / S3_PUBLIC_URL`.
-  - Interface: `put(key,bytes)`, `read(key)→Buffer`, `publicUrl(key)`, `delete(keys[])`.
-- Cột `Asset.storedPath` (absolute path) → đổi sang **`storageKey` tương đối**. `assetUrl()` dùng `publicUrl()`.
-- **Motion Control**: tại dispatch, truyền `publicUrl(imageKey)` + `publicUrl(videoKey)` vào `image_url`/`video_url`. **Image→Video giữ base64** (đang OK, không cần đổi).
-- Thumbnail webp (`sharp`) khi upload → gallery nhẹ.
-- Xoá ngược + GC: xoá project/batch/cell → bulk-delete object R2 (vá luôn bug file mồ côi: `projects.ts`/`cells.ts`/`batches.ts` hiện KHÔNG dọn file). `deleteAsset` (đã có) cũng cần xoá object R2 thay vì chỉ disk.
-- Video output Kling KHÔNG để R2 (tải local → Drive); R2 chỉ giữ ảnh nguồn + video motion + thumbnail. ⚠️ URL output Kling hết hạn ~vài tuần → tải sớm.
-
-**Cần từ user:** tự tạo tài khoản Cloudflare + R2 bucket + API token (Claude không nhập credentials). Sau đó điền 5 biến `S3_*` vào `bridge/.env` (hoặc `.env`).
-
-**Đã loại:** Google Drive làm nguồn (public link chập chờn). Tunnel + signed-public-asset là phương án tạm #2 (không chọn) — chỉ dùng nếu cần demo motion control TRƯỚC khi có R2.
+## 1. Đã xong phiên này
+- **Merge nhánh `ĐA`** vào `main` (studio: output preview, drag-reorder, multi-select, in-site dialogs; fix cảnh báo Kling-key khi gán shared account).
+- **R2 phần 1** — `src/lib/storage.ts`: `StorageProvider` (S3 API qua `@aws-sdk/client-s3`) với `put/read/publicUrl/delete`. Fail-fast nếu thiếu `S3_*`. Test mock 9/9 pass (`tests/storage.test.ts`).
+- **R2 phần 2** — chuyển storage disk→R2:
+  - Migration `storage_key_rename`: `Asset.storedPath` & `LibraryVideo.storedPath` → `storageKey` (RENAME COLUMN tại chỗ; **forward-only** — file local cũ không migrate).
+  - `uploads.ts` key helpers (`assetKey/thumbKey/libraryKey`); `saveUpload`→`storage.put`; `fileToBase64`/`deleteUpload` theo key.
+  - `assets.ts`, `library-videos.ts`, serve routes (`/api/assets/[id]`, `/api/library/[id]`), `cells.ts`, `trimVideoAction` (ffmpeg đọc public URL R2).
+  - tsc sạch; full suite 86/87 (1 fail có sẵn từ trước: `tests/access.test.ts` — "plain member cannot delete projects", KHÔNG do R2).
 
 ---
 
-## 3. Workstream còn lại (sau R2)
-- **Perf — lag mỗi thao tác** (đã chẩn đoán, chưa sửa): `Studio.tsx` render lại toàn bộ ô mỗi state đổi. Fix: `React.memo`+`useCallback` cho Cell/MotionCell/AvatarCell → `useOptimistic` cho field → polling fetch status riêng (thay `router.refresh()` toàn trang 4s) → `Promise.all` các query trong `page.tsx`.
-- **Deploy**: Cloudflare Tunnel từ 1 máy luôn bật để cả nhóm test → sau đẩy lên server công ty. Vì R2 từ xa ngay từ đầu nên dời server KHÔNG cần migrate ảnh. Cần Postgres managed (Supabase/Neon) khi rời localhost. Khi deploy: thêm redirect URI domain vào Google Cloud Console + set secrets.
+## 2. 🔴 ƯU TIÊN tiếp theo: R2 phần 4 — dispatcher (mở khoá Motion Control)
+File: `src/worker/dispatcher.ts` (hàm `buildTask`).
+- **Motion Control** (dòng ~63–64): đang gửi `fileToBase64(p.imagePath)`/`fileToBase64(p.videoPath)` vào `imageUrl`/`videoUrl` → **sai** (Kling cần URL công khai). Đổi sang `getStorage().publicUrl(p.imagePath)` + `getStorage().publicUrl(p.videoPath)`.
+- **Image→Video / Avatar**: GIỮ base64, nhưng `fileToBase64` giờ đã đọc từ R2 theo key (xong ở phần 2) — không cần đổi gì thêm; chỉ xác nhận `p.imagePath` v.v. là storage key (đúng, vì `assetPath()` trả key).
+- `p.videoPath` cho motion có thể là asset key hoặc library key — cả hai đều là key R2 hợp lệ cho `publicUrl()`.
+
+## 3. R2 phần 5 — GC (vá bug file mồ côi)
+- Xoá project/batch/cell hiện KHÔNG dọn object. Thu thập storageKey asset liên quan rồi `getStorage().delete(keys)` trong `src/lib/projects.ts` / `cells.ts` / `batches.ts`.
+- `deleteAsset` đã xoá `[storageKey, thumbKey]` (xong phần 2).
+
+## 4. Hoãn (tuỳ chọn)
+- **Thumbnail webp** (`sharp` đã cài): sinh khi upload ảnh trong `createAsset` → `thumbs/...`; thêm route/UI dùng `publicUrl(thumbKey)` cho gallery nhẹ.
+- **Perf Studio**: render lại toàn bộ ô mỗi state đổi → `React.memo`+`useCallback` cho Cell, polling status riêng thay `router.refresh()` 4s.
 
 ---
 
-## 4. Ghi chú môi trường (session này)
-- `npm run dev:all` đang chạy nền (web :3000 + worker) — **kiểm tra trước khi start lại** (đã từng bị nhiều dev server orphan chiếm :3000/:3001 gây 500 stale; nếu lạ thì `pkill -f "next dev"; pkill -f "tsx watch src/worker"; pkill -f concurrently` rồi start 1 cái).
-- Key ElevenLabs/Kling: nhập trong app, không commit. `.env` gitignored.
+## 5. ⚙️ Thiết lập R2 (BẮT BUỘC để chạy — R2-only, không fallback)
+Không có 5 biến `S3_*` thì app throw ngay khi đụng storage (upload/serve/dispatch).
+
+**Tạo trên Cloudflare:**
+1. Đăng nhập Cloudflare → **R2** (cần bật, có free tier; thêm thẻ nhưng egress free).
+2. **Create bucket** → đặt tên, vd `klingdom`. → `S3_BUCKET=klingdom`.
+3. Trang R2 hiển thị **S3 API endpoint** dạng `https://<account_id>.r2.cloudflarestorage.com` → `S3_ENDPOINT`.
+4. **Manage R2 API Tokens** → Create token → quyền **Object Read & Write**, scope tới bucket trên.
+   - Copy **Access Key ID** → `S3_ACCESS_KEY`; **Secret Access Key** (hiện 1 lần) → `S3_SECRET_KEY`.
+5. Bucket → **Settings → Public access** → bật **R2.dev subdomain** (hoặc gắn custom domain).
+   - Lấy URL `https://pub-xxxx.r2.dev` → `S3_PUBLIC_URL`.
+   - ⚠️ Public access là cần thiết: Kling phải fetch ảnh/video motion từ URL này.
+
+**Điền vào `.env`** (xem mẫu + chú thích trong `.env.example`):
+```
+S3_ENDPOINT="https://<account_id>.r2.cloudflarestorage.com"
+S3_BUCKET="klingdom"
+S3_ACCESS_KEY="..."
+S3_SECRET_KEY="..."
+S3_PUBLIC_URL="https://pub-xxxx.r2.dev"
+```
+**Kiểm tra:** `npm run dev:all` → upload 1 ảnh trong Studio → ảnh hiện (serve qua R2). Mở `S3_PUBLIC_URL/<key>` trên trình duyệt ẩn danh phải tải được (không cần login) → Kling sẽ fetch được.
+
+---
+
+## 6. 🚀 Deploy (để cả nhóm dùng)
+Hai chặng — tunnel tạm trước, server công ty sau. Vì R2 từ xa ngay từ đầu nên đổi server KHÔNG cần migrate ảnh.
+
+**A. Tạm (1 máy luôn bật, demo nhóm):**
+- `npm run dev:all` trên 1 máy (web :3000 + worker).
+- **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:3000` → cấp domain `https://*.trycloudflare.com`.
+- Set `AUTH_URL="https://<tunnel-domain>"`; thêm domain đó vào **Authorized redirect URIs** trong Google Cloud Console (OAuth client) — nếu không sẽ lỗi `redirect_uri_mismatch`.
+
+**B. Server công ty (ổn định):**
+1. **Postgres managed** (Supabase/Neon) thay localhost → set `DATABASE_URL`; chạy `npx prisma migrate deploy`.
+2. Build & chạy: `npm run build && npm start` (web) + `npm run worker` (daemon) — cần 2 process (vd PM2/systemd, hoặc 2 service).
+3. Đặt **secrets** trên server (đừng commit): `AUTH_SECRET`, `AUTH_GOOGLE_ID/SECRET`, `KLING_ENC_KEY`, 5 biến `S3_*`, `DATABASE_URL`, `AUTH_URL=https://<domain công ty>`.
+4. Google Cloud Console → thêm redirect URI domain công ty.
+5. Reverse proxy (Nginx/Caddy) → HTTPS → :3000.
+- Lưu ý: ảnh/video đã ở R2 nên rời localhost không mất dữ liệu; chỉ cần Postgres mang theo (managed).
+
+---
+
+## 7. Ghi chú môi trường
+- Nếu :3000/:3001 lạ (500 stale do nhiều dev server orphan): `pkill -f "next dev"; pkill -f "tsx watch src/worker"; pkill -f concurrently` rồi start 1 cái.
+- Key ElevenLabs/Kling/R2 nhập trong app hoặc `.env` (gitignored) — không commit.
