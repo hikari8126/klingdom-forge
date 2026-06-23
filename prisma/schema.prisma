@@ -19,6 +19,7 @@ model User {
   name              String?
   image             String?
   role              Role              @default(member)
+  lastWorkspaceId   String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   memberships       WorkspaceMember[]
@@ -39,6 +40,8 @@ model Workspace {
   createdById String
   createdBy   User              @relation("WorkspaceCreatedBy", fields: [createdById], references: [id])
   klingApiKeyEnc String?
+  klingAccountId String?
+  klingAccount   KlingAccount?   @relation("WorkspaceKlingAccount", fields: [klingAccountId], references: [id], onDelete: SetNull)
   createdAt   DateTime          @default(now())
   members     WorkspaceMember[]
   projects    Project[]
@@ -95,6 +98,7 @@ model KlingAccount {
   notes        String?
   createdAt    DateTime @default(now())
   jobs         Job[]
+  assignedWorkspaces Workspace[] @relation("WorkspaceKlingAccount")
 }
 
 model Batch {

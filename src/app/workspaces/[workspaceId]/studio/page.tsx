@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { requireUser } from "@/lib/session";
-import { getWorkspaceForUser } from "@/lib/workspaces";
+import { getWorkspaceForUser, listWorkspacesForUser, recordWorkspaceOpened } from "@/lib/workspaces";
 import { listAssets } from "@/lib/assets";
 import { countEnabledAccounts } from "@/lib/kling-accounts";
 import { isWorkerOnline } from "@/lib/worker-status";
@@ -28,6 +28,7 @@ export default async function StudioPage({
     (session as unknown as { googleAccessToken?: string } | null)?.googleAccessToken ?? null;
   const result = await getWorkspaceForUser(user, params.workspaceId);
   if (!result) notFound();
+  await recordWorkspaceOpened(user, params.workspaceId);
   const projects = result.workspace.projects;
   const activeProject = projects.find((p) => p.id === searchParams.p) ?? projects[0] ?? null;
 
@@ -127,6 +128,10 @@ export default async function StudioPage({
   const workspaceHasKlingKey = Boolean(result.workspace.klingApiKeyEnc);
   const hasAccount = workspaceHasKlingKey || (await countEnabledAccounts()) > 0;
   const workerOnline = await isWorkerOnline();
+  const accessibleWorkspaces = (await listWorkspacesForUser(user)).map((w) => ({
+    id: w.id,
+    name: w.name,
+  }));
   const libraryVideos = (await listLibraryVideos()).map((v) => ({
     id: v.id,
     name: v.name,
@@ -156,6 +161,7 @@ export default async function StudioPage({
     <Studio
       workspaceId={params.workspaceId}
       workspaceName={result.workspace.name}
+      accessibleWorkspaces={accessibleWorkspaces}
       userName={userName}
       userFullName={user.name ?? user.email}
       userRole={user.role}

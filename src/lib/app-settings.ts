@@ -51,7 +51,7 @@ export async function listWorkspaceApiSettings(actor: CurrentUser) {
   assertSuperAdmin(actor);
   const workspaces = await db.workspace.findMany({
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, klingApiKeyEnc: true, createdAt: true },
+    select: { id: true, name: true, klingApiKeyEnc: true, klingAccountId: true, createdAt: true },
   });
   return workspaces.map(({ klingApiKeyEnc, ...workspace }) => ({
     ...workspace,

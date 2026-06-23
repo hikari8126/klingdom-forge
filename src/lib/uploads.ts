@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
 /** Root folder for uploaded media assets. */
@@ -75,4 +75,14 @@ export async function saveUpload(projectId: string, assetId: string, filename: s
 /** Read a stored file and return raw base64 (no data: prefix) for Kling. */
 export async function fileToBase64(storedPath: string): Promise<string> {
   return (await readFile(storedPath)).toString("base64");
+}
+
+/** Best-effort delete of a stored file. Missing file is not an error. */
+export async function deleteUpload(storedPath: string): Promise<void> {
+  if (!storedPath) return;
+  try {
+    await unlink(storedPath);
+  } catch {
+    // already gone or unreadable — nothing to clean up
+  }
 }
