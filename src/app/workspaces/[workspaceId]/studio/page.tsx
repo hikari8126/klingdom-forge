@@ -10,6 +10,7 @@ import { listBatches } from "@/lib/batches";
 import { listLibraryVideos } from "@/lib/library-videos";
 import { normalizeOutputSlots, normalizeSlotErrors, normalizeSlotStatuses } from "@/lib/output-slots";
 import { listUsersForRoleSettings, listWorkspaceApiSettings } from "@/lib/app-settings";
+import { workspaceHasDedicatedKlingKey } from "@/lib/workspace-keys";
 import { sanitizeKlingAvatarSettings, sanitizeKlingImageSettings, sanitizeKlingMotionSettings } from "@/lib/kling-options";
 import Studio, { type CellView } from "./Studio";
 
@@ -125,7 +126,7 @@ export default async function StudioPage({
     return rawName.slice(0, 2).toUpperCase();
   })();
 
-  const workspaceHasKlingKey = Boolean(result.workspace.klingApiKeyEnc);
+  const workspaceHasKlingKey = workspaceHasDedicatedKlingKey(result.workspace);
   const hasAccount = workspaceHasKlingKey || (await countEnabledAccounts()) > 0;
   const workerOnline = await isWorkerOnline();
   const accessibleWorkspaces = (await listWorkspacesForUser(user)).map((w) => ({
