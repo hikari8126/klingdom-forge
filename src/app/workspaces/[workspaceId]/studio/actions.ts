@@ -21,6 +21,7 @@ import {
 } from "@/lib/cells";
 import { assertAudioSize, assertVideoSize } from "@/lib/uploads";
 import { assetPath } from "@/lib/assets";
+import { getStorage } from "@/lib/storage";
 import { trimVideo } from "@/lib/video";
 import { getGoogleDriveAccessToken, importGoogleDriveAssets } from "@/lib/google-drive";
 import path from "node:path";
@@ -336,12 +337,13 @@ export async function trimVideoAction(
   batchId?: string,
 ): Promise<string> {
   const actor = await requireUser();
-  const storedPath = await assetPath(assetId);
-  if (!storedPath) throw new Error("Asset không tồn tại");
+  const key = await assetPath(assetId);
+  if (!key) throw new Error("Asset không tồn tại");
   const original = await db.asset.findUnique({ where: { id: assetId }, select: { filename: true } });
   const base = path.basename(original?.filename ?? "video", path.extname(original?.filename ?? ""));
   const newFilename = `${base}_cut_${Math.round(startSec)}-${Math.round(endSec)}s.mp4`;
-  const buf = await trimVideo(storedPath, startSec, endSec);
+  // ffmpeg reads the R2 public URL directly (assets live on R2 now, not local disk).
+  const buf = await trimVideo(getStorage().publicUrl(key), startSec, endSec);
   assertVideoSize(buf, newFilename);
   const newAsset = await createAsset(actor, projectId, newFilename, buf, batchId);
   rv(workspaceId);

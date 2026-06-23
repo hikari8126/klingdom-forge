@@ -240,10 +240,10 @@ export async function updateMotionCell(
   }
   if (patch.libraryVideoId !== undefined) {
     if (patch.libraryVideoId !== null) {
-      const libVid = await db.libraryVideo.findUnique({ where: { id: patch.libraryVideoId }, select: { storedPath: true } });
-      if (libVid?.storedPath) {
+      const libVid = await db.libraryVideo.findUnique({ where: { id: patch.libraryVideoId }, select: { storageKey: true } });
+      if (libVid?.storageKey) {
         params.libraryVideoId = patch.libraryVideoId;
-        params.videoPath = libVid.storedPath;
+        params.videoPath = libVid.storageKey;
         params.videoAssetId = undefined;
       }
     } else {

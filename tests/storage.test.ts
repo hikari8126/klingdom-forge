@@ -28,7 +28,7 @@ describe("loadStorageConfig", () => {
   });
 
   it("throws naming every missing var", () => {
-    expect(() => loadStorageConfig({ S3_BUCKET: "b" } as NodeJS.ProcessEnv)).toThrow(
+    expect(() => loadStorageConfig({ S3_BUCKET: "b" } as unknown as NodeJS.ProcessEnv)).toThrow(
       /S3_ENDPOINT.*S3_ACCESS_KEY.*S3_SECRET_KEY.*S3_PUBLIC_URL/,
     );
   });

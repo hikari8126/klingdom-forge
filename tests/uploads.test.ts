@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { safeExt, assetStoredPath, isAudioExt, isVideoExt, mimeForFilename, assertAudioSize, assertVideoSize } from "@/lib/uploads";
+import { safeExt, assetKey, libraryKey, thumbKey, isAudioExt, isVideoExt, mimeForFilename, assertAudioSize, assertVideoSize } from "@/lib/uploads";
 
 describe("safeExt", () => {
   it("keeps common image extensions (lowercased)", () => {
@@ -78,11 +78,17 @@ describe("assertVideoSize", () => {
   });
 });
 
-describe("assetStoredPath", () => {
-  it("builds <root>/<projectId>/<assetId><ext>", () => {
-    expect(assetStoredPath("/data/up", "proj1", "asset9", "pic.jpeg")).toBe("/data/up/proj1/asset9.jpeg");
+describe("assetKey / thumbKey / libraryKey", () => {
+  it("builds assets/<projectId>/<assetId><ext>", () => {
+    expect(assetKey("proj1", "asset9", "pic.jpeg")).toBe("assets/proj1/asset9.jpeg");
   });
-  it("sanitizes a filename with no real extension to .png (id is app-generated, path stays in root)", () => {
-    expect(assetStoredPath("/data/up", "proj1", "asset9", "../../etc/passwd")).toBe("/data/up/proj1/asset9.png");
+  it("sanitizes a filename with no real extension to .png (id is app-generated, key stays in prefix)", () => {
+    expect(assetKey("proj1", "asset9", "../../etc/passwd")).toBe("assets/proj1/asset9.png");
+  });
+  it("derives a webp thumbnail key under thumbs/", () => {
+    expect(thumbKey("proj1", "asset9")).toBe("thumbs/proj1/asset9.webp");
+  });
+  it("builds library/<id><ext>", () => {
+    expect(libraryKey("lib1", "ref.mp4")).toBe("library/lib1.mp4");
   });
 });

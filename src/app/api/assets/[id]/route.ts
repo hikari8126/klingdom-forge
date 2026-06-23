@@ -1,21 +1,11 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { getProjectForUser } from "@/lib/projects";
+import { getStorage } from "@/lib/storage";
+import { mimeForFilename } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
-
-const MIME: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".mp4": "video/mp4",
-  ".mov": "video/quicktime",
-};
 
 export async function GET(
   _req: Request,
@@ -32,9 +22,9 @@ export async function GET(
   if (!access) return new NextResponse("Forbidden", { status: 403 });
 
   try {
-    const bytes = await readFile(asset.storedPath);
-    const type = MIME[path.extname(asset.storedPath).toLowerCase()] ?? "application/octet-stream";
-    return new NextResponse(bytes, {
+    const bytes = await getStorage().read(asset.storageKey);
+    const type = asset.mimeType ?? mimeForFilename(asset.filename);
+    return new NextResponse(new Uint8Array(bytes), {
       headers: { "Content-Type": type, "Cache-Control": "private, max-age=3600" },
     });
   } catch {

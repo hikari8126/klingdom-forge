@@ -1,10 +1,5 @@
-import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
-
-/** Root folder for uploaded media assets. */
-export function uploadRoot(): string {
-  return process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads");
-}
+import { getStorage } from "@/lib/storage";
 
 const IMAGE_EXTS = /^\.(png|jpg|jpeg|webp|gif)$/;
 const VIDEO_EXTS = /^\.(mp4|mov)$/;
@@ -57,32 +52,35 @@ export function assertAudioSize(bytes: Buffer, filename: string): void {
   }
 }
 
-/** Deterministic on-disk path for an asset. assetId is app-generated (cuid), so the
- *  path cannot escape `root` regardless of the original filename. */
-export function assetStoredPath(root: string, projectId: string, assetId: string, filename: string): string {
-  return path.join(root, projectId, assetId + safeExt(filename));
+/** Object-storage keys. assetId/libraryVideoId are app-generated (cuid), so keys
+ *  cannot escape their prefix regardless of the original filename. */
+export function assetKey(projectId: string, assetId: string, filename: string): string {
+  return `assets/${projectId}/${assetId}${safeExt(filename)}`;
 }
 
-/** Write bytes to disk and return the stored absolute path. */
+export function thumbKey(projectId: string, assetId: string): string {
+  return `thumbs/${projectId}/${assetId}.webp`;
+}
+
+export function libraryKey(libraryVideoId: string, filename: string): string {
+  return `library/${libraryVideoId}${safeExt(filename)}`;
+}
+
+/** Upload bytes to object storage and return the stored key. */
 export async function saveUpload(projectId: string, assetId: string, filename: string, bytes: Buffer): Promise<string> {
-  const root = uploadRoot();
-  await mkdir(path.join(root, projectId), { recursive: true });
-  const stored = assetStoredPath(root, projectId, assetId, filename);
-  await writeFile(stored, bytes);
-  return stored;
+  const key = assetKey(projectId, assetId, filename);
+  await getStorage().put(key, bytes, mimeForFilename(filename));
+  return key;
 }
 
-/** Read a stored file and return raw base64 (no data: prefix) for Kling. */
-export async function fileToBase64(storedPath: string): Promise<string> {
-  return (await readFile(storedPath)).toString("base64");
+/** Read a stored object and return raw base64 (no data: prefix) for Kling. */
+export async function fileToBase64(key: string): Promise<string> {
+  return (await getStorage().read(key)).toString("base64");
 }
 
-/** Best-effort delete of a stored file. Missing file is not an error. */
-export async function deleteUpload(storedPath: string): Promise<void> {
-  if (!storedPath) return;
-  try {
-    await unlink(storedPath);
-  } catch {
-    // already gone or unreadable — nothing to clean up
-  }
+/** Best-effort bulk delete of stored objects. Missing/empty keys are not an error. */
+export async function deleteUpload(...keys: string[]): Promise<void> {
+  const real = keys.filter(Boolean);
+  if (real.length === 0) return;
+  await getStorage().delete(real);
 }

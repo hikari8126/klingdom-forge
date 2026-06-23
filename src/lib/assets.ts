@@ -2,9 +2,9 @@ import { db } from "@/lib/db";
 import type { CurrentUser } from "@/lib/session";
 import { getProjectForUser } from "@/lib/projects";
 import { ForbiddenError } from "@/lib/workspaces";
-import { saveUpload, deleteUpload, mimeForFilename } from "@/lib/uploads";
+import { saveUpload, deleteUpload, mimeForFilename, thumbKey } from "@/lib/uploads";
 
-/** Save an uploaded file (image or video) to disk + DB, scoped to a project/batch the actor can access. */
+/** Save an uploaded file (image or video) to object storage + DB, scoped to a project/batch the actor can access. */
 export async function createAsset(
   actor: CurrentUser,
   projectId: string,
@@ -15,12 +15,12 @@ export async function createAsset(
   const access = await getProjectForUser(actor, projectId);
   if (!access) throw new ForbiddenError();
   const mime = mimeForFilename(filename);
-  const id = (await db.asset.create({ data: { projectId, batchId, filename, storedPath: "", mimeType: mime } })).id;
-  const storedPath = await saveUpload(projectId, id, filename, bytes);
+  const id = (await db.asset.create({ data: { projectId, batchId, filename, storageKey: "", mimeType: mime } })).id;
+  const storageKey = await saveUpload(projectId, id, filename, bytes);
   return db.asset.update({
     where: { id },
-    data: { storedPath },
-    select: { id: true, filename: true, storedPath: true, mimeType: true },
+    data: { storageKey },
+    select: { id: true, filename: true, storageKey: true, mimeType: true },
   });
 }
 
@@ -31,25 +31,25 @@ export async function listAssets(actor: CurrentUser, projectId: string, batchId?
   return db.asset.findMany({
     where: { projectId, ...(batchId !== undefined ? { batchId } : {}) },
     orderBy: { createdAt: "desc" },
-    select: { id: true, filename: true, storedPath: true, mimeType: true, createdAt: true },
+    select: { id: true, filename: true, storageKey: true, mimeType: true, createdAt: true },
   });
 }
 
-/** Delete an asset (DB row + stored file) if the actor can access its project. */
+/** Delete an asset (DB row + stored object + thumbnail) if the actor can access its project. */
 export async function deleteAsset(actor: CurrentUser, assetId: string) {
   const asset = await db.asset.findUnique({
     where: { id: assetId },
-    select: { id: true, projectId: true, storedPath: true },
+    select: { id: true, projectId: true, storageKey: true },
   });
   if (!asset) return;
   const access = await getProjectForUser(actor, asset.projectId);
   if (!access) throw new ForbiddenError();
   await db.asset.delete({ where: { id: asset.id } });
-  await deleteUpload(asset.storedPath);
+  await deleteUpload(asset.storageKey, thumbKey(asset.projectId, asset.id));
 }
 
-/** Internal: resolve an asset's stored path (worker/cell use). */
+/** Internal: resolve an asset's storage key (worker/cell use). */
 export async function assetPath(assetId: string): Promise<string | null> {
-  const a = await db.asset.findUnique({ where: { id: assetId }, select: { storedPath: true } });
-  return a?.storedPath ?? null;
+  const a = await db.asset.findUnique({ where: { id: assetId }, select: { storageKey: true } });
+  return a?.storageKey ?? null;
 }
