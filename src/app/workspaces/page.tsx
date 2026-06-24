@@ -65,9 +65,34 @@ export default async function WorkspacesPage() {
         )}
 
         {workspaces.length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-white/[.07] bg-gradient-to-b from-white/[.05] to-white/[.012] p-8 text-center text-muted backdrop-blur-[16px]">
-            Chưa có workspace nào.
-          </div>
+          canCreateWorkspace(user.role) ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-white/[.12] p-10 text-center backdrop-blur-[16px]">
+              <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-muted">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
+              </div>
+              <p className="font-semibold text-white">Chưa có workspace nào</p>
+              <p className="mt-1 text-sm text-muted">Tạo workspace đầu tiên ở ô phía trên để bắt đầu.</p>
+            </div>
+          ) : (
+            <div className="mt-4 flex items-start gap-4 rounded-2xl border border-accent/35 bg-accent/[.07] p-6 backdrop-blur-[16px]">
+              <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-accent/20 text-accent-soft">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-semibold text-white">Bạn chưa được thêm vào workspace nào</p>
+                <p className="mt-1.5 text-sm text-muted">
+                  Nhờ <span className="font-medium text-white">Super Admin</span> thêm email của bạn vào workspace để bắt đầu làm việc.
+                </p>
+                <p className="mt-3 text-xs text-muted">
+                  Admin hướng dẫn: <span className="text-white">Settings → Workspace → Thành viên → nhập email → Thêm</span>
+                </p>
+              </div>
+            </div>
+          )
         ) : (
           <div className="mt-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
             {workspaces.map((w) => {

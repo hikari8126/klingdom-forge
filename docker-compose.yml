@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: forge
       POSTGRES_DB: klingdom_forge
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - forge_pgdata:/var/lib/postgresql/data
 
