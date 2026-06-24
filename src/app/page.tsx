@@ -21,6 +21,8 @@ export default async function Home() {
     { label: "Job đang chạy", value: data.stats.running, sub: "trong hàng đợi", color: data.stats.running > 0 ? "text-accent-soft" : "text-muted" },
   ];
 
+  const isNewMember = user.role !== "super_admin" && data.stats.workspaces === 0;
+
   return (
     <>
       <AppHeader user={user} crumb="Dashboard" workerOnline={data.system.worker} />
@@ -35,6 +37,30 @@ export default async function Home() {
             </h1>
           </div>
         </div>
+
+        {/* Onboarding banner — shown only to new members with no workspace */}
+        {isNewMember && (
+          <div className="mt-6 flex items-start gap-4 rounded-2xl border border-accent/40 bg-accent/[.08] p-5">
+            <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-accent/20 text-accent-soft">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-white">Tài khoản của bạn đã sẵn sàng</p>
+              <p className="mt-1 text-sm text-muted">
+                Bạn chưa được thêm vào workspace nào. Hãy nhờ <span className="text-white font-medium">Super Admin</span> thêm email{" "}
+                <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs text-accent-soft">{user.email}</span>{" "}
+                vào workspace để bắt đầu làm việc.
+              </p>
+              <p className="mt-2 text-xs text-muted">
+                Admin vào <span className="text-white">Settings → Workspace → Thành viên</span> để thêm bạn.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Stat cards */}
         <div className="mt-7 grid grid-cols-2 gap-3.5 md:grid-cols-4">
@@ -53,21 +79,30 @@ export default async function Home() {
         {/* Two-column body */}
         <div className="mt-4 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
           {/* Mở Studio hero */}
-          <div className="relative flex flex-col overflow-hidden rounded-[18px] border border-accent/35 bg-gradient-to-br from-accent/[.22] to-surface/[.55] p-[22px] shadow-[inset_0_1px_0_rgba(255,255,255,.07)] backdrop-blur-[16px]">
+          <div className={`relative flex flex-col overflow-hidden rounded-[18px] border p-[22px] shadow-[inset_0_1px_0_rgba(255,255,255,.07)] backdrop-blur-[16px] ${isNewMember ? "border-white/[.07] bg-gradient-to-br from-white/[.04] to-surface/[.55]" : "border-accent/35 bg-gradient-to-br from-accent/[.22] to-surface/[.55]"}`}>
             <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgb(var(--color-accent)/.45),transparent_70%)] blur-[10px]" />
             <div className="relative flex flex-1 flex-col">
               <h3 className="font-heading m-0 text-[19px] font-semibold text-white">Mở Studio</h3>
               <p className="mb-4 mt-[7px] max-w-[340px] text-[13px] text-muted">
-                Kéo–thả ảnh và video lên canvas, dựng hàng loạt clip Image→Video và Motion Control.
+                {isNewMember
+                  ? "Bạn cần được thêm vào một workspace trước khi có thể bắt đầu dựng video."
+                  : "Kéo–thả ảnh và video lên canvas, dựng hàng loạt clip Image→Video và Motion Control."}
               </p>
               <div className="mt-auto">
-                <Link
-                  href="/workspaces"
-                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-accent-soft to-accent px-[18px] py-2.5 text-[13.5px] font-semibold text-[#04212c] shadow-glow-accent transition hover:brightness-110"
-                >
-                  <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
-                  Vào canvas
-                </Link>
+                {isNewMember ? (
+                  <span className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl bg-white/10 px-[18px] py-2.5 text-[13.5px] font-semibold text-muted">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                    Chờ được thêm vào workspace
+                  </span>
+                ) : (
+                  <Link
+                    href="/workspaces"
+                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-accent-soft to-accent px-[18px] py-2.5 text-[13.5px] font-semibold text-[#04212c] shadow-glow-accent transition hover:brightness-110"
+                  >
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
+                    Vào canvas
+                  </Link>
+                )}
               </div>
             </div>
           </div>

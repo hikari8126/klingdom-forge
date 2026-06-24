@@ -3,6 +3,7 @@ import { GeistSans } from "geist/font/sans";
 import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
+import { DialogProvider } from "@/components/ConfirmDialog";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -34,7 +35,9 @@ export default function RootLayout({
       className={`${GeistSans.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <DialogProvider>{children}</DialogProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

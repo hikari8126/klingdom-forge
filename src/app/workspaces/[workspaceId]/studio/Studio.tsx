@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { UserMenu } from "@/components/UserMenu";
-import { DialogProvider, useDialog } from "@/components/ConfirmDialog";
+import { useDialog } from "@/components/ConfirmDialog";
 import { isActiveOutputStatus, type OutputSlotStatus } from "@/lib/output-slots";
 import {
   KLING_I2V_MODELS,
@@ -333,15 +333,11 @@ function loadGooglePickerApi(): Promise<void> {
 }
 
 export default function Studio(props: Props) {
-  return (
-    <DialogProvider>
-      <StudioInner {...props} />
-    </DialogProvider>
-  );
+  return <StudioInner {...props} />;
 }
 
 function StudioInner(props: Props) {
-  const { confirm, notify } = useDialog();
+  const { confirm, notify, prompt } = useDialog();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [imgOver, setImgOver] = useState(false);
@@ -635,7 +631,7 @@ function StudioInner(props: Props) {
     Array.from(files).forEach((f) => fd.append("files", f));
     start(() => uploadAudioAction(props.workspaceId, props.activeProjectId!, fd, props.activeBatchId ?? undefined));
   }
-  function importFromGoogleDrive() {
+  async function importFromGoogleDrive() {
     if (!props.activeProjectId || !props.activeBatchId) return;
     if (props.googleDriveAccessToken && props.googleDrivePickerApiKey) {
       start(async () => {
@@ -706,11 +702,14 @@ function StudioInner(props: Props) {
       return;
     }
 
-    const link = window.prompt(
-      props.googleDriveAccessToken
-        ? "Google Picker chưa cấu hình API key. Dán link Google Drive file/folder hoặc raw ID:"
-        : "Dán link Google Drive file/folder hoặc raw ID. Nếu là Drive riêng tư, hãy đăng xuất rồi đăng nhập lại để cấp quyền Drive read-only.",
-    );
+    const link = await prompt({
+      title: "Import từ Google Drive",
+      message: props.googleDriveAccessToken
+        ? "Google Picker chưa cấu hình API key. Dán link hoặc ID file/folder từ Google Drive:"
+        : "Dán link hoặc ID file/folder từ Google Drive. Nếu là Drive riêng tư, đăng xuất rồi đăng nhập lại để cấp quyền Drive read-only.",
+      placeholder: "https://drive.google.com/... hoặc raw ID",
+      confirmLabel: "Import",
+    });
     if (!link?.trim()) return;
     start(async () => {
       try {
@@ -750,10 +749,11 @@ function StudioInner(props: Props) {
       router.push(`/workspaces/${props.workspaceId}/studio?p=${projectId}&b=${batchId}`);
     });
   }
-  function handleRenameBatch(batchId: string, currentName: string) {
-    const name = window.prompt("Tên mới:", currentName);
-    if (!name || name === currentName) return;
-    start(() => renameBatchAction(props.workspaceId, batchId, name));
+  async function handleRenameBatch(batchId: string, currentName: string) {
+    const name = await prompt({ title: "Đổi tên batch", defaultValue: currentName, placeholder: "Tên batch…", confirmLabel: "Lưu" });
+    const trimmed = name?.trim();
+    if (!trimmed || trimmed === currentName) return;
+    start(() => renameBatchAction(props.workspaceId, batchId, trimmed));
   }
   async function handleDeleteBatch(batchId: string) {
     if (!(await confirm({ title: "Xoá batch", message: "Xoá batch này? Tất cả video trong batch sẽ bị xoá.", danger: true, confirmLabel: "Xoá" }))) return;
@@ -764,10 +764,11 @@ function StudioInner(props: Props) {
       }
     });
   }
-  function handleRenameProject(projectId: string, currentName: string) {
-    const name = window.prompt("Tên mới:", currentName);
-    if (!name || name === currentName) return;
-    start(() => renameProjectAction(props.workspaceId, projectId, name));
+  async function handleRenameProject(projectId: string, currentName: string) {
+    const name = await prompt({ title: "Đổi tên project", defaultValue: currentName, placeholder: "Tên project…", confirmLabel: "Lưu" });
+    const trimmed = name?.trim();
+    if (!trimmed || trimmed === currentName) return;
+    start(() => renameProjectAction(props.workspaceId, projectId, trimmed));
   }
   async function handleDeleteProject(projectId: string) {
     if (!(await confirm({ title: "Xoá project", message: "Xoá project này? Tất cả batch và video sẽ bị xoá.", danger: true, confirmLabel: "Xoá" }))) return;
@@ -785,8 +786,11 @@ function StudioInner(props: Props) {
     start(() => updateMotionCellAction(props.workspaceId, jobId, patch));
   const updAvatar = (jobId: string, patch: Parameters<typeof updateAvatarCellAction>[2]) =>
     start(() => updateAvatarCellAction(props.workspaceId, jobId, patch));
-  const conv = (jobId: string, type: CellTypeTab) =>
+  const conv = async (jobId: string, type: CellTypeTab) => {
+    const ok = await confirm({ title: "Chuyển loại ô", message: "Cấu hình hiện tại sẽ bị xoá và không thể khôi phục. Tiếp tục?", confirmLabel: "Chuyển" });
+    if (!ok) return;
     start(() => convertCellAction(props.workspaceId, jobId, type));
+  };
   function handleGenerate(cell: CellView) {
     // Let the server choose the next available slot from the freshest DB state.
     // This keeps the button happily clickable even when the UI hasn't refreshed yet.
@@ -1591,7 +1595,9 @@ function OutputSlotsPanel({ cell, ctl, name }: { cell: CellView; ctl: OutputCtl;
                 </span>
               </div>
             )}
-            {status === "failed" && err && <p className="mt-0.5 line-clamp-1 text-[9px] text-bad">{err}</p>}
+            {status === "failed" && err && (
+              <p className="mt-0.5 line-clamp-2 cursor-help text-[9px] text-bad" title={err}>{err}</p>
+            )}
           </div>
         );
       })}

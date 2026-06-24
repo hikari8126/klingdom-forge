@@ -103,6 +103,11 @@ export function SettingsPanel({
               </button>
             ))}
           </div>
+          {!isAdmin && (
+            <div className="border-t border-border px-4 py-3">
+              <p className="text-[10px] text-muted leading-relaxed">Tab <span className="text-white">Role</span> &amp; <span className="text-white">Key</span> chỉ dành cho Super Admin.</p>
+            </div>
+          )}
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col">
@@ -431,7 +436,7 @@ function WorkspaceModule({
                 {detail.members.map((m) => (
                   <div key={m.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
                     <span className="truncate text-white">{m.name} <span className="mono ml-1 text-accent-soft">{m.role}</span></span>
-                    {detail.canManage && <DeleteIcon onClick={() => { const fd = new FormData(); fd.set("workspaceId", detail.id); fd.set("userId", m.userId); submit(removeMemberFromSettingsAction, fd); }} disabled={busy} />}
+                    {detail.canManage && <DeleteIcon onClick={async () => { if (!(await confirm({ title: "Xoá thành viên", message: `Xoá "${m.name}" khỏi workspace?`, danger: true, confirmLabel: "Xoá" }))) return; const fd = new FormData(); fd.set("workspaceId", detail.id); fd.set("userId", m.userId); submit(removeMemberFromSettingsAction, fd); }} disabled={busy} />}
                   </div>
                 ))}
               </div>
