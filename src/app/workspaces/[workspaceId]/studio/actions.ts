@@ -21,6 +21,7 @@ import {
 } from "@/lib/cells";
 import { assertAudioSize, assertVideoSize } from "@/lib/uploads";
 import { assetPath } from "@/lib/assets";
+import { getStorage } from "@/lib/storage";
 import { trimVideo } from "@/lib/video";
 import { getGoogleDriveAccessToken, importGoogleDriveAssets } from "@/lib/google-drive";
 import path from "node:path";
@@ -55,6 +56,14 @@ export async function deleteProjectAction(workspaceId: string, projectId: string
 export async function deleteAssetAction(workspaceId: string, assetId: string) {
   const actor = await requireUser();
   await deleteAsset(actor, assetId);
+  rv(workspaceId);
+}
+
+export async function deleteAssetsAction(workspaceId: string, assetIds: string[]) {
+  const actor = await requireUser();
+  for (const id of assetIds) {
+    await deleteAsset(actor, id);
+  }
   rv(workspaceId);
 }
 
@@ -131,6 +140,28 @@ export async function importGoogleDriveAction(
 export async function createCellAction(workspaceId: string, projectId: string, startAssetId: string, batchId?: string) {
   const actor = await requireUser();
   await createCell(actor, projectId, startAssetId, batchId);
+  rv(workspaceId);
+}
+
+/** Upload dropped files into source assets AND create a Video Generation cell per image. */
+export async function uploadImagesAndCreateCellsAction(workspaceId: string, projectId: string, formData: FormData, batchId?: string) {
+  const actor = await requireUser();
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File);
+  for (const f of files) {
+    const buf = Buffer.from(await f.arrayBuffer());
+    const asset = await createAsset(actor, projectId, f.name, buf, batchId);
+    if (asset.mimeType?.startsWith("image/")) {
+      await createCell(actor, projectId, asset.id, batchId);
+    }
+  }
+  rv(workspaceId);
+}
+
+export async function createCellsAction(workspaceId: string, projectId: string, startAssetIds: string[], batchId?: string) {
+  const actor = await requireUser();
+  for (const startAssetId of startAssetIds) {
+    await createCell(actor, projectId, startAssetId, batchId);
+  }
   rv(workspaceId);
 }
 
@@ -306,12 +337,13 @@ export async function trimVideoAction(
   batchId?: string,
 ): Promise<string> {
   const actor = await requireUser();
-  const storedPath = await assetPath(assetId);
-  if (!storedPath) throw new Error("Asset không tồn tại");
+  const key = await assetPath(assetId);
+  if (!key) throw new Error("Asset không tồn tại");
   const original = await db.asset.findUnique({ where: { id: assetId }, select: { filename: true } });
   const base = path.basename(original?.filename ?? "video", path.extname(original?.filename ?? ""));
   const newFilename = `${base}_cut_${Math.round(startSec)}-${Math.round(endSec)}s.mp4`;
-  const buf = await trimVideo(storedPath, startSec, endSec);
+  // ffmpeg reads the R2 public URL directly (assets live on R2 now, not local disk).
+  const buf = await trimVideo(getStorage().publicUrl(key), startSec, endSec);
   assertVideoSize(buf, newFilename);
   const newAsset = await createAsset(actor, projectId, newFilename, buf, batchId);
   rv(workspaceId);

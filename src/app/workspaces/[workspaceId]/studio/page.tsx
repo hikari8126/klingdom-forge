@@ -10,6 +10,7 @@ import { listBatches } from "@/lib/batches";
 import { listLibraryVideos } from "@/lib/library-videos";
 import { normalizeOutputSlots, normalizeSlotErrors, normalizeSlotStatuses } from "@/lib/output-slots";
 import { listUsersForRoleSettings, listWorkspaceApiSettings } from "@/lib/app-settings";
+import { workspaceHasDedicatedKlingKey } from "@/lib/workspace-keys";
 import { sanitizeKlingAvatarSettings, sanitizeKlingImageSettings, sanitizeKlingMotionSettings } from "@/lib/kling-options";
 import Studio, { type CellView } from "./Studio";
 
@@ -32,7 +33,7 @@ export default async function StudioPage({
   const projects = result.workspace.projects;
   const activeProject = projects.find((p) => p.id === searchParams.p) ?? projects[0] ?? null;
 
-  let assets: { id: string; filename: string; mimeType: string | null }[] = [];
+  let assets: { id: string; filename: string; mimeType: string | null; createdAt: string }[] = [];
   let cells: CellView[] = [];
   let batches: { id: string; name: string; jobCount: number; createdAt: string }[] = [];
   let activeBatchId: string | null = null;
@@ -56,6 +57,7 @@ export default async function StudioPage({
         id: a.id,
         filename: a.filename,
         mimeType: a.mimeType ?? null,
+        createdAt: a.createdAt.toISOString(),
       }));
     }
 
@@ -77,6 +79,7 @@ export default async function StudioPage({
               };
         return {
           id: j.id,
+          createdAt: j.createdAt.toISOString(),
           status: j.status,
           type: j.type,
           resultUrl: j.resultUrl,
@@ -125,7 +128,7 @@ export default async function StudioPage({
     return rawName.slice(0, 2).toUpperCase();
   })();
 
-  const workspaceHasKlingKey = Boolean(result.workspace.klingApiKeyEnc);
+  const workspaceHasKlingKey = workspaceHasDedicatedKlingKey(result.workspace);
   const hasAccount = workspaceHasKlingKey || (await countEnabledAccounts()) > 0;
   const workerOnline = await isWorkerOnline();
   const accessibleWorkspaces = (await listWorkspacesForUser(user)).map((w) => ({

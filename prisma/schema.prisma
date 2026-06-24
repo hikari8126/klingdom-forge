@@ -148,7 +148,7 @@ model Asset {
   projectId  String
   batchId    String?
   filename   String
-  storedPath String
+  storageKey String
   mimeType   String?
   createdAt  DateTime @default(now())
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -162,7 +162,7 @@ model LibraryVideo {
   id         String   @id @default(cuid())
   name       String
   filename   String
-  storedPath String
+  storageKey String
   mimeType   String   @default("video/mp4")
   createdAt  DateTime @default(now())
 }

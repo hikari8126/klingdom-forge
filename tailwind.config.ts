@@ -32,6 +32,8 @@ const config: Config = {
         ok: "rgb(var(--color-ok) / <alpha-value>)",
         bad: "rgb(var(--color-bad) / <alpha-value>)",
         yellow: "rgb(var(--color-yellow) / <alpha-value>)",
+        info: "rgb(var(--color-info) / <alpha-value>)",
+        violet: "rgb(var(--color-violet) / <alpha-value>)",
       },
       boxShadow: {
         "glow-accent": "0 8px 30px -8px rgb(var(--color-accent) / 0.55)",

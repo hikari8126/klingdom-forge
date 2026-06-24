@@ -1,6 +1,7 @@
 import type { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { CurrentUser } from "@/lib/session";
+import { workspaceHasDedicatedKlingKey } from "@/lib/workspace-keys";
 
 const ROLE_VALUES = ["super_admin", "manager", "member"] as const;
 
@@ -55,6 +56,6 @@ export async function listWorkspaceApiSettings(actor: CurrentUser) {
   });
   return workspaces.map(({ klingApiKeyEnc, ...workspace }) => ({
     ...workspace,
-    hasKlingKey: Boolean(klingApiKeyEnc),
+    hasKlingKey: workspaceHasDedicatedKlingKey({ klingApiKeyEnc, klingAccountId: workspace.klingAccountId }),
   }));
 }

@@ -1,12 +1,7 @@
-import path from "node:path";
-import { mkdir, writeFile, unlink } from "node:fs/promises";
 import { db } from "@/lib/db";
-import { safeExt, mimeForFilename } from "@/lib/uploads";
+import { mimeForFilename, libraryKey } from "@/lib/uploads";
+import { getStorage } from "@/lib/storage";
 import type { CurrentUser } from "@/lib/session";
-
-export function libraryRoot(): string {
-  return process.env.LIBRARY_DIR || path.join(process.cwd(), "library");
-}
 
 export async function listLibraryVideos() {
   return db.libraryVideo.findMany({ orderBy: { createdAt: "asc" } });
@@ -21,13 +16,11 @@ export async function createLibraryVideo(
   if (actor.role !== "super_admin") throw new Error("Forbidden");
   const mime = mimeForFilename(filename);
   const record = await db.libraryVideo.create({
-    data: { name: name.trim() || filename, filename, storedPath: "", mimeType: mime },
+    data: { name: name.trim() || filename, filename, storageKey: "", mimeType: mime },
   });
-  const root = libraryRoot();
-  await mkdir(root, { recursive: true });
-  const stored = path.join(root, record.id + safeExt(filename));
-  await writeFile(stored, bytes);
-  return db.libraryVideo.update({ where: { id: record.id }, data: { storedPath: stored } });
+  const storageKey = libraryKey(record.id, filename);
+  await getStorage().put(storageKey, bytes, mime);
+  return db.libraryVideo.update({ where: { id: record.id }, data: { storageKey } });
 }
 
 export async function deleteLibraryVideos(actor: CurrentUser, ids: string[]) {
@@ -37,12 +30,12 @@ export async function deleteLibraryVideos(actor: CurrentUser, ids: string[]) {
 
   const records = await db.libraryVideo.findMany({
     where: { id: { in: cleanIds } },
-    select: { id: true, storedPath: true },
+    select: { id: true, storageKey: true },
   });
   if (records.length === 0) return 0;
 
   await db.libraryVideo.deleteMany({ where: { id: { in: records.map((r) => r.id) } } });
-  await Promise.all(records.map((r) => unlink(r.storedPath).catch(() => {})));
+  await getStorage().delete(records.map((r) => r.storageKey).filter(Boolean));
   return records.length;
 }
 

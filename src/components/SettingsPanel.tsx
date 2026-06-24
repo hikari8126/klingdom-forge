@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { SettingsData, WorkspaceDetail } from "@/lib/settings-data";
+import { useDialog } from "@/components/ConfirmDialog";
 import {
   setUserRoleAction,
   createKlingKeyAction,
@@ -41,6 +42,7 @@ export function SettingsPanel({
   onClose: () => void;
   onReload: () => void;
 }) {
+  const { confirm } = useDialog();
   const isAdmin = data.role === "super_admin";
   const modules: { id: ModuleId; label: string; count?: number }[] = [
     ...(isAdmin
@@ -188,7 +190,7 @@ export function SettingsPanel({
                             {a.enabled ? "● Bật" : "○ Tắt"}
                           </button>
                           <button
-                            onClick={() => { if (confirm(`Xoá key "${a.label}"? Workspace đang gán key này sẽ về pool chung.`)) { const fd = new FormData(); fd.set("id", a.id); run(deleteKlingKeyAction, fd); } }}
+                            onClick={async () => { if (await confirm({ title: "Xoá key", message: `Xoá key "${a.label}"? Workspace đang gán key này sẽ về pool chung.`, danger: true, confirmLabel: "Xoá" })) { const fd = new FormData(); fd.set("id", a.id); run(deleteKlingKeyAction, fd); } }}
                             disabled={pending}
                             title="Xoá key"
                             className="grid h-7 w-7 place-items-center rounded-lg border border-border text-muted transition hover:border-bad/50 hover:text-bad disabled:opacity-50"
@@ -259,7 +261,7 @@ export function SettingsPanel({
                       <span className="truncate text-white">{v.name} <span className="ml-1 text-xs text-muted">{v.filename}</span></span>
                       {isAdmin && (
                         <button
-                          onClick={() => { if (confirm(`Xoá "${v.name}"?`)) { const fd = new FormData(); fd.set("id", v.id); run(deleteLibraryVideoAction, fd); } }}
+                          onClick={async () => { if (await confirm({ title: "Xoá video", message: `Xoá "${v.name}"?`, danger: true, confirmLabel: "Xoá" })) { const fd = new FormData(); fd.set("id", v.id); run(deleteLibraryVideoAction, fd); } }}
                           disabled={pending}
                           className="rounded text-muted transition hover:text-bad disabled:opacity-50"
                           title="Xoá"
@@ -293,6 +295,7 @@ function WorkspaceModule({
   canCreate: boolean;
   onReload: () => void;
 }) {
+  const { confirm } = useDialog();
   const validInitial = initialWorkspaceId && workspaces.some((w) => w.id === initialWorkspaceId) ? initialWorkspaceId : workspaces[0]?.id ?? "";
   const [selected, setSelected] = useState(validInitial);
   const [detail, setDetail] = useState<WorkspaceDetail | null>(null);
@@ -402,7 +405,7 @@ function WorkspaceModule({
                 {detail.projects.map((p) => (
                   <div key={p.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
                     <span className="truncate text-white">{p.name}</span>
-                    {detail.canManage && <DeleteIcon onClick={() => { if (confirm(`Xoá project "${p.name}"?`)) { const fd = new FormData(); fd.set("projectId", p.id); submit(deleteProjectFromSettingsAction, fd); } }} disabled={busy} />}
+                    {detail.canManage && <DeleteIcon onClick={async () => { if (await confirm({ title: "Xoá project", message: `Xoá project "${p.name}"?`, danger: true, confirmLabel: "Xoá" })) { const fd = new FormData(); fd.set("projectId", p.id); submit(deleteProjectFromSettingsAction, fd); } }} disabled={busy} />}
                   </div>
                 ))}
               </div>
