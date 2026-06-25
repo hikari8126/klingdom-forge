@@ -142,6 +142,17 @@ export async function createCellAction(workspaceId: string, projectId: string, s
   rv(workspaceId);
 }
 
+/** Upload a single image into source assets and return its id (for dropping onto a frame slot). */
+export async function uploadOneImageAction(workspaceId: string, projectId: string, formData: FormData, batchId?: string): Promise<string> {
+  const actor = await requireUser();
+  const f = formData.get("file");
+  if (!(f instanceof File)) throw new Error("Không có file");
+  const buf = Buffer.from(await f.arrayBuffer());
+  const asset = await createAsset(actor, projectId, f.name, buf, batchId);
+  rv(workspaceId);
+  return asset.id;
+}
+
 /** Upload dropped files into source assets AND create a Video Generation cell per image. */
 export async function uploadImagesAndCreateCellsAction(workspaceId: string, projectId: string, formData: FormData, batchId?: string) {
   const actor = await requireUser();
@@ -195,6 +206,7 @@ export async function updateCellAction(
     videoRatio?: KlingVideoRatio;
     nativeAudio?: boolean;
     multiShot?: boolean;
+    startAssetId?: string;
     endAssetId?: string | null;
   },
 ) {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { UserMenu } from "@/components/UserMenu";
 import { DialogProvider, useDialog } from "@/components/ConfirmDialog";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { isActiveOutputStatus, type OutputSlotStatus } from "@/lib/output-slots";
 import {
   KLING_I2V_MODELS,
@@ -25,6 +26,7 @@ import type { JobStatus } from "@prisma/client";
 import {
   uploadImagesAction,
   uploadImagesAndCreateCellsAction,
+  uploadOneImageAction,
   uploadAudioAction,
   uploadVideosAction,
   importGoogleDriveAction,
@@ -261,9 +263,32 @@ function CollapseBtn({ collapsed, onToggle }: { collapsed: boolean; onToggle: ()
   );
 }
 
+/** Draggable grip (⠿) used to reorder cells — works in both expanded and collapsed views. */
+function DragHandle({ dragId }: { dragId: string }) {
+  return (
+    <span
+      draggable
+      onDragStart={(e) => { e.dataTransfer.setData("text/cell-reorder", dragId); e.dataTransfer.effectAllowed = "move"; }}
+      title="Kéo để sắp xếp thứ tự"
+      className="flex-none cursor-grab text-muted hover:text-white"
+    >
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" /><circle cx="15" cy="18" r="1.4" /></svg>
+    </span>
+  );
+}
+
+/** Red ✕ delete button shown at the top corner of a cell. */
+function DeleteCellBtn({ onDel }: { onDel: () => void }) {
+  return (
+    <button onClick={onDel} title="Xoá ô" className="grid h-6 w-6 flex-none place-items-center rounded-md text-bad transition hover:bg-bad/15">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M18 6L6 18M6 6l12 12" /></svg>
+    </button>
+  );
+}
+
 /** Top-left header bar for an expanded cell: collapse, select, type tabs, then meta/status. */
 function CellHeader({
-  collapsed, selected, onToggle, onSelect, activeType, onConvert, meta, statusText, statusClass, dragId,
+  collapsed, selected, onToggle, onSelect, activeType, onConvert, meta, statusText, statusClass, dragId, onDel,
 }: {
   collapsed: boolean;
   selected: boolean;
@@ -275,23 +300,18 @@ function CellHeader({
   statusText: string;
   statusClass: string;
   dragId: string;
+  onDel: () => void;
 }) {
   return (
     <div className="flex items-center gap-2 border-b border-border px-2.5 py-2">
-      <span
-        draggable
-        onDragStart={(e) => { e.dataTransfer.setData("text/cell-reorder", dragId); e.dataTransfer.effectAllowed = "move"; }}
-        title="Kéo để sắp xếp thứ tự"
-        className="flex-none cursor-grab text-muted hover:text-white"
-      >
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" /><circle cx="15" cy="18" r="1.4" /></svg>
-      </span>
+      <DragHandle dragId={dragId} />
       <CollapseBtn collapsed={collapsed} onToggle={onToggle} />
       <SelCheckbox selected={selected} onSelect={onSelect} />
       <TypeTabs active={activeType} onChange={onConvert} />
       <div className="flex-1" />
       {meta && <span className="mono hidden text-[10px] text-muted lg:inline">{meta}</span>}
       <span className={`mono flex-none text-[10.5px] ${statusClass}`}>{statusText}</span>
+      <DeleteCellBtn onDel={onDel} />
     </div>
   );
 }
@@ -349,6 +369,8 @@ function StudioInner(props: Props) {
   const [sortDir, setSortDir] = useState<"newest" | "oldest" | "custom">("newest");
   const [customOrder, setCustomOrder] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [draggingCellId, setDraggingCellId] = useState<string | null>(null);
+  const [cellsRef] = useAutoAnimate<HTMLDivElement>();
   const [selectedAssets, setSelectedAssets] = useState<Set<string>>(new Set());
   const lastClickedAsset = useRef<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -460,10 +482,24 @@ function StudioInner(props: Props) {
     if (idx === -1) return;
     const insertAt = before ? idx : idx + 1;
     const next = [...without.slice(0, insertAt), draggedId, ...without.slice(insertAt)];
+    // No-op if the order is unchanged — avoids re-render thrash during live drag-over.
+    if (next.length === base.length && next.every((id, i) => id === base[i])) return;
     persistSort("custom");
     setCustomOrder(next);
     if (props.activeBatchId) {
       try { localStorage.setItem(`kdf-order-${props.activeBatchId}`, JSON.stringify(next)); } catch {}
+    }
+  }
+  // Upload a single dropped file into assets and return its id (for frame slots).
+  async function uploadOneImage(file: File): Promise<string | null> {
+    if (!props.activeProjectId) return null;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      return await uploadOneImageAction(props.workspaceId, props.activeProjectId, fd, props.activeBatchId ?? undefined);
+    } catch (e) {
+      void notify(e instanceof Error ? e.message : "Tải ảnh thất bại");
+      return null;
     }
   }
   function toggleCollapse(id: string) {
@@ -537,7 +573,11 @@ function StudioInner(props: Props) {
         ? imageAssets.filter((a) => selectedAssets.has(a.id)).map((a) => a.id)
         : [assetId];
     e.dataTransfer.setData("text/asset", ids[0]);
+    e.dataTransfer.effectAllowed = "copy";
     if (ids.length > 1) e.dataTransfer.setData("text/asset-multi", JSON.stringify(ids));
+    // Drag image follows the cursor — centred thumbnail of what's being dragged.
+    const img = e.currentTarget.querySelector("img");
+    if (img) e.dataTransfer.setDragImage(img, img.clientWidth / 2, img.clientHeight / 2);
   }
 
   function handleCanvasDropMulti(ids: string[]) {
@@ -1282,8 +1322,8 @@ function StudioInner(props: Props) {
         {/* MAIN */}
         <main
           className="flex min-h-0 min-w-0 flex-1 flex-col"
-          onDragOverCapture={(e) => { if (active && props.activeBatchId && Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault(); }}
-          onDropCapture={(e) => { if (active && props.activeBatchId && e.dataTransfer.files?.length) { e.preventDefault(); e.stopPropagation(); uploadImagesToWorkspace(e.dataTransfer.files); } }}
+          onDragOverCapture={(e) => { if (active && props.activeBatchId && Array.from(e.dataTransfer.types).includes("Files") && !(e.target as HTMLElement).closest?.("[data-frame-drop]")) e.preventDefault(); }}
+          onDropCapture={(e) => { if (active && props.activeBatchId && e.dataTransfer.files?.length && !(e.target as HTMLElement).closest?.("[data-frame-drop]")) { e.preventDefault(); e.stopPropagation(); uploadImagesToWorkspace(e.dataTransfer.files); } }}
         >
           <div className="flex items-start justify-between gap-4 px-7 py-5">
             <div>
@@ -1434,7 +1474,7 @@ function StudioInner(props: Props) {
               );
             })()}
 
-            <div className="space-y-3.5">
+            <div ref={cellsRef} className="space-y-3.5">
               {sortedCells.map((c) => {
                 const shared = {
                   cell: c,
@@ -1459,21 +1499,28 @@ function StudioInner(props: Props) {
                     <Cell
                       {...shared}
                       onField={(p) => updI2V(c.id, p)}
+                      onSetStart={(assetId) => updI2V(c.id, { startAssetId: assetId })}
                       onSetEnd={(assetId) => updI2V(c.id, { endAssetId: assetId })}
                       onSwap={() => start(() => swapFramesAction(props.workspaceId, c.id))}
+                      uploadImage={uploadOneImage}
                     />
                   );
                 return (
                   <div
                     key={c.id}
-                    onDragOver={(e) => { if (e.dataTransfer.types.includes("text/cell-reorder")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
-                    onDrop={(e) => {
-                      const dragged = e.dataTransfer.getData("text/cell-reorder");
-                      if (!dragged || dragged === c.id) return;
+                    // The only draggable inside a cell is the ⠿ handle (bubbles here).
+                    onDragStart={() => setDraggingCellId(c.id)}
+                    onDragEnd={() => setDraggingCellId(null)}
+                    onDragOver={(e) => {
+                      if (!draggingCellId || !e.dataTransfer.types.includes("text/cell-reorder")) return;
                       e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      if (draggingCellId === c.id) return;
                       const r = e.currentTarget.getBoundingClientRect();
-                      reorderCells(dragged, c.id, e.clientY - r.top < r.height / 2);
+                      reorderCells(draggingCellId, c.id, e.clientY - r.top < r.height / 2);
                     }}
+                    onDrop={(e) => { if (e.dataTransfer.types.includes("text/cell-reorder")) { e.preventDefault(); setDraggingCellId(null); } }}
+                    className={draggingCellId === c.id ? "opacity-50" : undefined}
                   >
                     {inner}
                   </div>
@@ -1601,7 +1648,7 @@ function OutputSlotsPanel({ cell, ctl, name }: { cell: CellView; ctl: OutputCtl;
 
 // ── Image→Video Cell ──────────────────────────────────────────────────────────
 function Cell({
-  cell, startName, endName, collapsed, selected, onSelect, onToggle, onField, onSetEnd, onSwap, onGenerate, onDel, onConvert, outputCtl, reorderId,
+  cell, startName, endName, collapsed, selected, onSelect, onToggle, onField, onSetStart, onSetEnd, onSwap, onGenerate, onDel, onConvert, outputCtl, reorderId, uploadImage,
 }: {
   cell: CellView;
   startName: string;
@@ -1611,6 +1658,8 @@ function Cell({
   onSelect: () => void;
   onToggle: () => void;
   onField: (patch: Parameters<typeof updateCellAction>[2]) => void;
+  onSetStart: (assetId: string) => void;
+  uploadImage: (file: File) => Promise<string | null>;
   onSetEnd: (assetId: string) => void;
   onSwap: () => void;
   onGenerate: () => void;
@@ -1619,6 +1668,7 @@ function Cell({
   outputCtl: OutputCtl;
   reorderId: string;
 }) {
+  const [startOver, setStartOver] = useState(false);
   const [endOver, setEndOver] = useState(false);
   const st = cellStatusMeta(cell);
   const generating = hasActiveSlots(cell);
@@ -1637,6 +1687,7 @@ function Cell({
   if (collapsed) {
     return (
       <div className={`flex items-center gap-3 rounded-xl border bg-surface px-2.5 py-2 transition ${selected ? "border-accent/60 bg-accent/5" : "border-border hover:border-border/80"}`}>
+        <DragHandle dragId={reorderId} />
         <CollapseBtn collapsed={collapsed} onToggle={onToggle} />
         <SelCheckbox selected={selected} onSelect={onSelect} />
         {cell.startAssetId ? (
@@ -1654,44 +1705,60 @@ function Cell({
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
           </button>
         )}
+        <DeleteCellBtn onDel={onDel} />
       </div>
     );
   }
 
   return (
     <div className={`overflow-hidden rounded-xl border bg-surface transition ${selected ? "border-accent/60 bg-accent/5" : "border-border"}`}>
-      <CellHeader collapsed={collapsed} selected={selected} onToggle={onToggle} onSelect={onSelect} activeType="image2video" onConvert={onConvert} meta={cellMeta} statusText={st.t} statusClass={st.c} dragId={reorderId} />
+      <CellHeader collapsed={collapsed} selected={selected} onToggle={onToggle} onSelect={onSelect} activeType="image2video" onConvert={onConvert} meta={cellMeta} statusText={st.t} statusClass={st.c} dragId={reorderId} onDel={onDel} />
       <div className="overflow-x-auto">
       <div className="flex min-w-[1000px] items-stretch p-3">
         {/* frames */}
         <div className="relative flex flex-none items-center gap-1.5">
-          {cell.startAssetId ? (
-            <div className="flex flex-none flex-col gap-0.5">
-              <img src={assetUrl(cell.startAssetId)} alt="start" className="h-[156px] w-[118px] rounded-lg border border-border object-cover" />
-              {startName && <span title={startName} className="block w-[118px] truncate text-center text-[10px] text-muted">{startName}</span>}
-            </div>
-          ) : (
-            <div className="flex h-[156px] w-[118px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border text-center text-[10px] text-muted">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
-              Kéo ảnh vào
-            </div>
-          )}
-          {cell.endAssetId ? (
-            <div className="flex flex-none flex-col gap-0.5">
-              <img src={assetUrl(cell.endAssetId)} alt="end" className="h-[156px] w-[118px] rounded-lg border border-border object-cover" />
-              {endName && <span title={endName} className="block w-[118px] truncate text-center text-[10px] text-muted">{endName}</span>}
-            </div>
-          ) : (
-            <div
-              onDragOver={(e) => { e.preventDefault(); setEndOver(true); }}
-              onDragLeave={() => setEndOver(false)}
-              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setEndOver(false); const id = e.dataTransfer.getData("text/asset"); if (id) onSetEnd(id); }}
-              className={`flex h-[156px] w-[118px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-center text-[10px] ${endOver ? "border-accent text-accent-soft bg-accent/10" : "border-border text-muted"}`}
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
-              End frame<br />(kéo ảnh vào)
-            </div>
-          )}
+          <div
+            data-frame-drop
+            onDragOver={(e) => { const t = e.dataTransfer.types; if (t.includes("text/asset") || t.includes("Files")) { e.preventDefault(); setStartOver(true); } }}
+            onDragLeave={() => setStartOver(false)}
+            onDrop={(e) => {
+              if (e.dataTransfer.files?.length) { e.preventDefault(); e.stopPropagation(); setStartOver(false); const f = e.dataTransfer.files[0]; if (f.type.startsWith("image/")) void uploadImage(f).then((id) => { if (id) onSetStart(id); }); return; }
+              const id = e.dataTransfer.getData("text/asset"); if (!id) return; e.preventDefault(); e.stopPropagation(); setStartOver(false); onSetStart(id);
+            }}
+            className="flex flex-none flex-col gap-0.5"
+            title="Kéo ảnh vào để đặt/đổi ảnh đầu"
+          >
+            {cell.startAssetId ? (
+              <img src={assetUrl(cell.startAssetId)} alt="start" className={`h-[156px] w-[118px] rounded-lg border object-cover transition-all ${startOver ? "border-accent ring-2 ring-accent/50 scale-[1.02]" : "border-border"}`} />
+            ) : (
+              <div className={`flex h-[156px] w-[118px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-center text-[10px] transition-all ${startOver ? "border-accent text-accent-soft bg-accent/10 ring-2 ring-accent/40" : "border-border text-muted"}`}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
+                Kéo ảnh vào
+              </div>
+            )}
+            {cell.startAssetId && startName && <span title={startName} className="block w-[118px] truncate text-center text-[10px] text-muted">{startName}</span>}
+          </div>
+          <div
+            data-frame-drop
+            onDragOver={(e) => { const t = e.dataTransfer.types; if (t.includes("text/asset") || t.includes("Files")) { e.preventDefault(); setEndOver(true); } }}
+            onDragLeave={() => setEndOver(false)}
+            onDrop={(e) => {
+              if (e.dataTransfer.files?.length) { e.preventDefault(); e.stopPropagation(); setEndOver(false); const f = e.dataTransfer.files[0]; if (f.type.startsWith("image/")) void uploadImage(f).then((id) => { if (id) onSetEnd(id); }); return; }
+              const id = e.dataTransfer.getData("text/asset"); if (!id) return; e.preventDefault(); e.stopPropagation(); setEndOver(false); onSetEnd(id);
+            }}
+            className="flex flex-none flex-col gap-0.5"
+            title="Kéo ảnh vào để đặt/đổi end frame"
+          >
+            {cell.endAssetId ? (
+              <img src={assetUrl(cell.endAssetId)} alt="end" className={`h-[156px] w-[118px] rounded-lg border object-cover transition-all ${endOver ? "border-accent ring-2 ring-accent/50 scale-[1.02]" : "border-border"}`} />
+            ) : (
+              <div className={`flex h-[156px] w-[118px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-center text-[10px] transition-all ${endOver ? "border-accent text-accent-soft bg-accent/10 ring-2 ring-accent/40" : "border-border text-muted"}`}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M12 8v8M8 12h8" /></svg>
+                End frame<br />(kéo ảnh vào)
+              </div>
+            )}
+            {cell.endAssetId && endName && <span title={endName} className="block w-[118px] truncate text-center text-[10px] text-muted">{endName}</span>}
+          </div>
           {cell.endAssetId && (
             <button onClick={onSwap} className="absolute left-1/2 top-1/2 z-10 grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-[#0d1116] text-white shadow-lg hover:border-accent hover:text-accent-soft">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 7h11l-3-3M16 17H5l3 3" /></svg>
@@ -1759,31 +1826,25 @@ function Cell({
               onClick={() => onField({ multiShot: !cell.multiShot })}
             />
           </div>
-          <textarea
-            defaultValue={cell.prompt}
-            onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
-            placeholder="Mô tả chuyển động mong muốn…"
-            className="min-h-[54px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
-          />
+          <div className="relative flex flex-1 flex-col">
+            <textarea
+              defaultValue={cell.prompt}
+              onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
+              placeholder="Mô tả chuyển động mong muốn…"
+              className="min-h-[80px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 pr-32 text-sm outline-none focus:border-accent"
+            />
+            <button
+              onClick={onGenerate}
+              className={`absolute bottom-2 right-2 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-[0_4px_14px_-6px_rgba(95,208,142,.6)] transition hover:brightness-110 ${generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a]"}`}
+            >
+              {activeSlotText(cell)}
+            </button>
+          </div>
           {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
         </div>
 
-        {/* actions */}
-        <div className="mx-4 flex w-[134px] flex-none flex-col gap-3.5">
-          <button
-            onClick={onGenerate}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] hover:brightness-110 ${
-              generating
-                ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]"
-                : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a]"
-            }`}
-          >
-            {activeSlotText(cell)}
-          </button>
-          <button onClick={onDel} className="rounded-lg border border-bad/50 bg-bad/10 px-1.5 py-2 text-[10.5px] font-semibold text-bad transition hover:border-bad hover:bg-bad/20">Xoá ô</button>
-        </div>
-
         {/* result slots */}
+        <div className="mx-4 w-px flex-none bg-border" />
         <OutputSlotsPanel cell={cell} ctl={outputCtl} name={startName} />
       </div>
       </div>
@@ -1841,6 +1902,7 @@ function MotionCell({
           ? { borderColor: "rgb(var(--color-accent)/0.6)", background: "rgb(var(--color-accent)/0.08)" }
           : { borderColor: "rgb(var(--color-accent)/0.35)", background: "rgb(var(--color-accent)/0.04)" }}
       >
+        <DragHandle dragId={reorderId} />
         <CollapseBtn collapsed={collapsed} onToggle={onToggle} />
         <SelCheckbox selected={selected} onSelect={onSelect} />
         {cell.startAssetId ? (
@@ -1864,6 +1926,7 @@ function MotionCell({
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
           </button>
         )}
+        <DeleteCellBtn onDel={onDel} />
       </div>
     );
   }
@@ -1875,7 +1938,7 @@ function MotionCell({
         ? { borderColor: "rgb(var(--color-accent)/0.6)", background: "linear-gradient(135deg,rgb(var(--color-accent)/0.1),transparent)" }
         : { borderColor: "rgb(var(--color-accent)/0.3)", background: "linear-gradient(135deg,rgb(var(--color-accent)/0.06),transparent)" }}
     >
-      <CellHeader collapsed={collapsed} selected={selected} onToggle={onToggle} onSelect={onSelect} activeType="motioncontrol" onConvert={onConvert} meta={motionMeta} statusText={st.t} statusClass={st.c} dragId={reorderId} />
+      <CellHeader collapsed={collapsed} selected={selected} onToggle={onToggle} onSelect={onSelect} activeType="motioncontrol" onConvert={onConvert} meta={motionMeta} statusText={st.t} statusClass={st.c} dragId={reorderId} onDel={onDel} />
       <div className="overflow-x-auto">
       <div className="flex min-w-[1000px] items-stretch p-3">
         {/* ref image + video section */}
@@ -2062,12 +2125,21 @@ function MotionCell({
               </SegmentedGroup>
             </Field>
           </div>
-          <textarea
-            defaultValue={cell.prompt}
-            onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
-            placeholder="Prompt bổ sung (tuỳ chọn)…"
-            className="min-h-[54px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
-          />
+          <div className="relative flex flex-1 flex-col">
+            <textarea
+              defaultValue={cell.prompt}
+              onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
+              placeholder="Prompt bổ sung (tuỳ chọn)…"
+              className="min-h-[80px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 pr-32 text-sm outline-none focus:border-accent"
+            />
+            <button
+              onClick={onGenerate}
+              disabled={!canGenerate}
+              className={`absolute bottom-2 right-2 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-[0_4px_14px_-6px_rgba(95,208,142,.6)] transition ${!canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+            >
+              {!canGenerate ? (missingImage ? "Cần ảnh" : "Cần video") : activeSlotText(cell)}
+            </button>
+          </div>
           {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
           <div className="flex flex-wrap gap-1">
             <span className="mono rounded-md bg-accent/10 px-2 py-1 text-[10px] text-accent-soft">
@@ -2082,25 +2154,8 @@ function MotionCell({
           </div>
         </div>
 
-        {/* actions */}
-        <div className="mx-4 flex w-[134px] flex-none flex-col gap-3.5">
-          <button
-            onClick={onGenerate}
-            disabled={!canGenerate}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${
-              !canGenerate
-                ? "cursor-not-allowed bg-surface-2 text-muted"
-                : generating
-                  ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110"
-                  : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"
-            }`}
-          >
-            {!canGenerate ? (missingImage ? "Cần ảnh" : "Cần video") : activeSlotText(cell)}
-          </button>
-          <button onClick={onDel} className="rounded-lg border border-bad/50 bg-bad/10 px-1.5 py-2 text-[10.5px] font-semibold text-bad transition hover:border-bad hover:bg-bad/20">Xoá ô</button>
-        </div>
-
         {/* result slots */}
+        <div className="mx-4 w-px flex-none bg-border" />
         <OutputSlotsPanel cell={cell} ctl={outputCtl} name={startName} />
       </div>
       </div>
@@ -2159,6 +2214,7 @@ function AvatarCell({
           ? { borderColor: "rgb(var(--color-yellow)/0.6)", background: "rgb(var(--color-yellow)/0.08)" }
           : { borderColor: "rgb(var(--color-yellow)/0.35)", background: "rgb(var(--color-yellow)/0.04)" }}
       >
+        <DragHandle dragId={reorderId} />
         <CollapseBtn collapsed={collapsed} onToggle={onToggle} />
         <SelCheckbox selected={selected} onSelect={onSelect} />
         {cell.startAssetId ? (
@@ -2179,6 +2235,7 @@ function AvatarCell({
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M5 3l14 9-14 9z" /></svg>
           </button>
         )}
+        <DeleteCellBtn onDel={onDel} />
       </div>
     );
   }
@@ -2190,7 +2247,7 @@ function AvatarCell({
         ? { borderColor: "rgb(var(--color-yellow)/0.6)", background: "linear-gradient(135deg,rgb(var(--color-yellow)/0.08),transparent)" }
         : { borderColor: "rgb(var(--color-yellow)/0.3)", background: "linear-gradient(135deg,rgb(var(--color-yellow)/0.05),transparent)" }}
     >
-      <CellHeader collapsed={collapsed} selected={selected} onToggle={onToggle} onSelect={onSelect} activeType="avatar" onConvert={onConvert} meta={`${cell.mode} · ${audioLabel}`} statusText={st.t} statusClass={st.c} dragId={reorderId} />
+      <CellHeader collapsed={collapsed} selected={selected} onToggle={onToggle} onSelect={onSelect} activeType="avatar" onConvert={onConvert} meta={`${cell.mode} · ${audioLabel}`} statusText={st.t} statusClass={st.c} dragId={reorderId} onDel={onDel} />
       <div className="overflow-x-auto">
       <div className="flex min-w-[1000px] items-stretch p-3">
         <div className="flex flex-none items-start gap-3">
@@ -2296,37 +2353,29 @@ function AvatarCell({
             <span className="mono rounded-md bg-yellow/10 px-2 py-1 text-[10px] text-yellow/80">Avatar image2video</span>
             <span className="mono rounded-md bg-white/5 px-2 py-1 text-[10px] text-muted">Audio 2-300s · image 1:2.5~2.5:1</span>
           </div>
-          <textarea
-            defaultValue={avatarPrompt}
-            onBlur={(e) => { if (e.target.value !== avatarPrompt) onField({ prompt: e.target.value, avatarText: e.target.value }); }}
-            placeholder="Prompt biểu cảm, hành động, camera movement…"
-            className="min-h-[64px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
-          />
+          <div className="relative flex flex-1 flex-col">
+            <textarea
+              defaultValue={avatarPrompt}
+              onBlur={(e) => { if (e.target.value !== avatarPrompt) onField({ prompt: e.target.value, avatarText: e.target.value }); }}
+              placeholder="Prompt biểu cảm, hành động, camera movement…"
+              className="min-h-[80px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 pr-32 text-sm outline-none focus:border-accent"
+            />
+            <button
+              onClick={onGenerate}
+              disabled={!canGenerate}
+              className={`absolute bottom-2 right-2 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-[0_4px_14px_-6px_rgba(95,208,142,.6)] transition ${!canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+            >
+              {!canGenerate ? "Thiếu thông tin" : activeSlotText(cell)}
+            </button>
+          </div>
           {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
           {(!cell.startAssetId || !hasAudio) && (
             <p className="text-[10px] text-yellow/70">Cần chọn ảnh Avatar và audio_id/sound_file để generate.</p>
           )}
         </div>
 
-        {/* actions */}
-        <div className="mx-4 flex w-[134px] flex-none flex-col gap-3.5">
-          <button
-            onClick={onGenerate}
-            disabled={!canGenerate}
-            className={`flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl text-sm font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] ${
-              !canGenerate
-                ? "cursor-not-allowed bg-surface-2 text-muted"
-                : generating
-                  ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110"
-                  : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"
-            }`}
-          >
-            {!canGenerate ? "Thiếu thông tin" : activeSlotText(cell)}
-          </button>
-          <button onClick={onDel} className="rounded-lg border border-bad/50 bg-bad/10 px-1.5 py-2 text-[10.5px] font-semibold text-bad transition hover:border-bad hover:bg-bad/20">Xoá ô</button>
-        </div>
-
         {/* result slots */}
+        <div className="mx-4 w-px flex-none bg-border" />
         <OutputSlotsPanel cell={cell} ctl={outputCtl} name={startName} />
       </div>
       </div>

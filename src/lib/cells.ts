@@ -111,6 +111,7 @@ export async function updateCell(
     videoRatio?: KlingVideoRatio;
     nativeAudio?: boolean;
     multiShot?: boolean;
+    startAssetId?: string;
     endAssetId?: string | null;
   },
 ) {
@@ -125,6 +126,10 @@ export async function updateCell(
   if (patch.videoRatio !== undefined) params.videoRatio = patch.videoRatio;
   if (patch.nativeAudio !== undefined) params.nativeAudio = patch.nativeAudio;
   if (patch.multiShot !== undefined) params.multiShot = patch.multiShot;
+  if (patch.startAssetId !== undefined) {
+    params.startAssetId = patch.startAssetId;
+    params.imagePath = (await assetPath(patch.startAssetId)) ?? params.imagePath;
+  }
   if (patch.endAssetId !== undefined) {
     params.endAssetId = patch.endAssetId ?? undefined;
     params.endPath = patch.endAssetId ? (await assetPath(patch.endAssetId)) ?? undefined : undefined;

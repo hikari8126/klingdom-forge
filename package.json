@@ -18,6 +18,7 @@
     "dev:all": "concurrently -n web,worker -c cyan,green \"next dev\" \"tsx watch src/worker/index.ts\""
   },
   "dependencies": {
+    "@formkit/auto-animate": "^0.9.0",
     "@prisma/client": "^5.22.0",
     "dotenv": "^17.4.2",
     "geist": "^1.7.2",
