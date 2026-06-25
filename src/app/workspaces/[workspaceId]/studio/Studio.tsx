@@ -1658,9 +1658,9 @@ function Cell({
   onSelect: () => void;
   onToggle: () => void;
   onField: (patch: Parameters<typeof updateCellAction>[2]) => void;
-  onSetStart: (assetId: string) => void;
+  onSetStart: (assetId: string | null) => void;
   uploadImage: (file: File) => Promise<string | null>;
-  onSetEnd: (assetId: string) => void;
+  onSetEnd: (assetId: string | null) => void;
   onSwap: () => void;
   onGenerate: () => void;
   onDel: () => void;
@@ -1725,9 +1725,18 @@ function Cell({
               if (e.dataTransfer.files?.length) { e.preventDefault(); e.stopPropagation(); setStartOver(false); const f = e.dataTransfer.files[0]; if (f.type.startsWith("image/")) void uploadImage(f).then((id) => { if (id) onSetStart(id); }); return; }
               const id = e.dataTransfer.getData("text/asset"); if (!id) return; e.preventDefault(); e.stopPropagation(); setStartOver(false); onSetStart(id);
             }}
-            className="flex flex-none flex-col gap-0.5"
+            className="group/frame relative flex flex-none flex-col gap-0.5"
             title="Kéo ảnh vào để đặt/đổi ảnh đầu"
           >
+            {cell.startAssetId && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetStart(null); }}
+                title="Xoá ảnh đầu"
+                className="absolute right-1 top-1 z-10 hidden h-5 w-5 place-items-center rounded-full bg-black/70 text-bad transition hover:bg-bad hover:text-white group-hover/frame:grid"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M18 6L6 18M6 6l12 12" /></svg>
+              </button>
+            )}
             {cell.startAssetId ? (
               <img src={assetUrl(cell.startAssetId)} alt="start" className={`h-[156px] w-[118px] rounded-lg border object-cover transition-all ${startOver ? "border-accent ring-2 ring-accent/50 scale-[1.02]" : "border-border"}`} />
             ) : (
@@ -1746,9 +1755,18 @@ function Cell({
               if (e.dataTransfer.files?.length) { e.preventDefault(); e.stopPropagation(); setEndOver(false); const f = e.dataTransfer.files[0]; if (f.type.startsWith("image/")) void uploadImage(f).then((id) => { if (id) onSetEnd(id); }); return; }
               const id = e.dataTransfer.getData("text/asset"); if (!id) return; e.preventDefault(); e.stopPropagation(); setEndOver(false); onSetEnd(id);
             }}
-            className="flex flex-none flex-col gap-0.5"
+            className="group/frame relative flex flex-none flex-col gap-0.5"
             title="Kéo ảnh vào để đặt/đổi end frame"
           >
+            {cell.endAssetId && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetEnd(null); }}
+                title="Xoá end frame"
+                className="absolute right-1 top-1 z-10 hidden h-5 w-5 place-items-center rounded-full bg-black/70 text-bad transition hover:bg-bad hover:text-white group-hover/frame:grid"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M18 6L6 18M6 6l12 12" /></svg>
+              </button>
+            )}
             {cell.endAssetId ? (
               <img src={assetUrl(cell.endAssetId)} alt="end" className={`h-[156px] w-[118px] rounded-lg border object-cover transition-all ${endOver ? "border-accent ring-2 ring-accent/50 scale-[1.02]" : "border-border"}`} />
             ) : (
@@ -1770,18 +1788,27 @@ function Cell({
 
         {/* controls */}
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-3 rounded-xl border border-border/70 bg-surface-2/40 p-3">
-            <Field label="Model">
-              <select defaultValue={cell.modelName} onChange={(e) => onField({ modelName: e.target.value })} className="kf-select">
+          {/* Prompt fills the top empty space */}
+          <textarea
+            defaultValue={cell.prompt}
+            onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
+            placeholder="Mô tả chuyển động mong muốn…"
+            className="min-h-[96px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
+          {/* Row 1: Model · Độ dài · Quality · Video Ratio */}
+          <div className="flex items-end gap-3">
+            <Field label="Model" className="min-w-0 flex-1">
+              <select defaultValue={cell.modelName} onChange={(e) => onField({ modelName: e.target.value })} className="kf-select w-full">
                 {KLING_I2V_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </Field>
-            <Field label="Độ dài">
-              <select defaultValue={cell.duration} onChange={(e) => onField({ duration: e.target.value })} className="kf-select">
+            <Field label="Độ dài" className="min-w-0 flex-1">
+              <select defaultValue={cell.duration} onChange={(e) => onField({ duration: e.target.value })} className="kf-select w-full">
                 {caps.durations.map((d) => <option key={d} value={d}>{d} giây</option>)}
               </select>
             </Field>
-            <Field label="Quality">
+            <Field label="Quality" className="min-w-0 flex-1">
               <SegmentedGroup>
                 {KLING_IMAGE_MODE_OPTIONS.map((m) => (
                   <SegmentedButton
@@ -1796,7 +1823,7 @@ function Cell({
                 ))}
               </SegmentedGroup>
             </Field>
-            <Field label="Video Ratio">
+            <Field label="Video Ratio" className="min-w-0 flex-1">
               <SegmentedGroup>
                 {KLING_VIDEO_RATIO_OPTIONS.map((r) => (
                   <SegmentedButton
@@ -1811,6 +1838,9 @@ function Cell({
                 ))}
               </SegmentedGroup>
             </Field>
+          </div>
+          {/* Row 2: Native Audio · Multi-shot … Generate (nổi bật phải) */}
+          <div className="flex items-center gap-3">
             <FeatureToggle
               label="Native Audio"
               active={cell.nativeAudio && nativeAudioSupported}
@@ -1825,22 +1855,14 @@ function Cell({
               title={caps.supportsMultiShot ? "Bật multi-shot intelligence" : "Model này không support Multi-shot"}
               onClick={() => onField({ multiShot: !cell.multiShot })}
             />
-          </div>
-          <div className="relative flex flex-1 flex-col">
-            <textarea
-              defaultValue={cell.prompt}
-              onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
-              placeholder="Mô tả chuyển động mong muốn…"
-              className="min-h-[80px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 pr-32 text-sm outline-none focus:border-accent"
-            />
+            <div className="flex-1" />
             <button
               onClick={onGenerate}
-              className={`absolute bottom-2 right-2 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-[0_4px_14px_-6px_rgba(95,208,142,.6)] transition hover:brightness-110 ${generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a]"}`}
+              className={`h-9 flex-none self-end rounded-lg px-4 text-xs font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] transition hover:brightness-110 ${generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700]" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a]"}`}
             >
               {activeSlotText(cell)}
             </button>
           </div>
-          {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
         </div>
 
         {/* result slots */}
@@ -2067,8 +2089,17 @@ function MotionCell({
 
         {/* controls */}
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-3 rounded-xl border border-border/70 bg-surface-2/40 p-3">
-            <Field label="Model">
+          {/* Prompt fills the top empty space */}
+          <textarea
+            defaultValue={cell.prompt}
+            onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
+            placeholder="Prompt bổ sung (tuỳ chọn)…"
+            className="min-h-[96px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
+          {/* Row 1: Model · Quality · Orientation · Keep Sound */}
+          <div className="flex items-end gap-3">
+            <Field label="Model" className="min-w-0 flex-1">
               <SegmentedGroup>
                 {KLING_MOTION_MODELS.map((m) => (
                   <SegmentedButton
@@ -2082,7 +2113,7 @@ function MotionCell({
                 ))}
               </SegmentedGroup>
             </Field>
-            <Field label="Quality">
+            <Field label="Quality" className="min-w-0 flex-1">
               <SegmentedGroup>
                 {KLING_MOTION_MODE_OPTIONS.map((m) => (
                   <SegmentedButton
@@ -2096,7 +2127,7 @@ function MotionCell({
                 ))}
               </SegmentedGroup>
             </Field>
-            <Field label="Orientation">
+            <Field label="Orientation" className="min-w-0 flex-1">
               <SegmentedGroup>
                 {KLING_MOTION_ORIENTATION_OPTIONS.map((o) => (
                   <SegmentedButton
@@ -2110,7 +2141,7 @@ function MotionCell({
                 ))}
               </SegmentedGroup>
             </Field>
-            <Field label="Keep Sound">
+            <Field label="Keep Sound" className="min-w-0 flex-1">
               <SegmentedGroup>
                 {KLING_SOUND_MODE_OPTIONS.map((s) => (
                   <SegmentedButton
@@ -2125,32 +2156,27 @@ function MotionCell({
               </SegmentedGroup>
             </Field>
           </div>
-          <div className="relative flex flex-1 flex-col">
-            <textarea
-              defaultValue={cell.prompt}
-              onBlur={(e) => { if (e.target.value !== cell.prompt) onField({ prompt: e.target.value }); }}
-              placeholder="Prompt bổ sung (tuỳ chọn)…"
-              className="min-h-[80px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 pr-32 text-sm outline-none focus:border-accent"
-            />
+          {/* Row 2: tags … Generate (nổi bật phải) */}
+          <div className="flex items-center gap-3">
+            <div className="flex flex-wrap gap-1">
+              <span className="mono rounded-md bg-accent/10 px-2 py-1 text-[10px] text-accent-soft">
+                {cell.modelName === "kling-v3" ? "Motion Control 3.0" : "Motion Control 2.6"}
+              </span>
+              <span className="mono rounded-md bg-white/5 px-2 py-1 text-[10px] text-muted">
+                {cell.characterOrientation === "video" ? "Reference video <=30s" : "Reference video <=10s"}
+              </span>
+              {cell.modelName === "kling-v3" && (
+                <span className="mono rounded-md bg-yellow/10 px-2 py-1 text-[10px] text-yellow/80">4K không support Motion Control</span>
+              )}
+            </div>
+            <div className="flex-1" />
             <button
               onClick={onGenerate}
               disabled={!canGenerate}
-              className={`absolute bottom-2 right-2 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-[0_4px_14px_-6px_rgba(95,208,142,.6)] transition ${!canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+              className={`h-9 flex-none self-end rounded-lg px-4 text-xs font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] transition ${!canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
             >
               {!canGenerate ? (missingImage ? "Cần ảnh" : "Cần video") : activeSlotText(cell)}
             </button>
-          </div>
-          {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
-          <div className="flex flex-wrap gap-1">
-            <span className="mono rounded-md bg-accent/10 px-2 py-1 text-[10px] text-accent-soft">
-              {cell.modelName === "kling-v3" ? "Motion Control 3.0" : "Motion Control 2.6"}
-            </span>
-            <span className="mono rounded-md bg-white/5 px-2 py-1 text-[10px] text-muted">
-              {cell.characterOrientation === "video" ? "Reference video <=30s" : "Reference video <=10s"}
-            </span>
-            {cell.modelName === "kling-v3" && (
-              <span className="mono rounded-md bg-yellow/10 px-2 py-1 text-[10px] text-yellow/80">4K không support Motion Control</span>
-            )}
           </div>
         </div>
 
@@ -2335,7 +2361,19 @@ function AvatarCell({
 
         {/* controls */}
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-3 rounded-xl border border-border/70 bg-surface-2/40 p-3">
+          {/* Prompt fills the top empty space */}
+          <textarea
+            defaultValue={avatarPrompt}
+            onBlur={(e) => { if (e.target.value !== avatarPrompt) onField({ prompt: e.target.value, avatarText: e.target.value }); }}
+            placeholder="Prompt biểu cảm, hành động, camera movement…"
+            className="min-h-[96px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
+          {(!cell.startAssetId || !hasAudio) && (
+            <p className="text-[10px] text-yellow/70">Cần chọn ảnh Avatar và audio_id/sound_file để generate.</p>
+          )}
+          {/* Mode · tags … Generate (nổi bật phải) */}
+          <div className="flex items-end gap-3">
             <Field label="Mode">
               <SegmentedGroup>
                 {KLING_AVATAR_MODE_OPTIONS.map((m) => (
@@ -2351,27 +2389,16 @@ function AvatarCell({
               </SegmentedGroup>
             </Field>
             <span className="mono rounded-md bg-yellow/10 px-2 py-1 text-[10px] text-yellow/80">Avatar image2video</span>
-            <span className="mono rounded-md bg-white/5 px-2 py-1 text-[10px] text-muted">Audio 2-300s · image 1:2.5~2.5:1</span>
-          </div>
-          <div className="relative flex flex-1 flex-col">
-            <textarea
-              defaultValue={avatarPrompt}
-              onBlur={(e) => { if (e.target.value !== avatarPrompt) onField({ prompt: e.target.value, avatarText: e.target.value }); }}
-              placeholder="Prompt biểu cảm, hành động, camera movement…"
-              className="min-h-[80px] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 pr-32 text-sm outline-none focus:border-accent"
-            />
+            <span className="mono hidden rounded-md bg-white/5 px-2 py-1 text-[10px] text-muted lg:inline">Audio 2-300s · image 1:2.5~2.5:1</span>
+            <div className="flex-1" />
             <button
               onClick={onGenerate}
               disabled={!canGenerate}
-              className={`absolute bottom-2 right-2 rounded-lg px-3.5 py-1.5 text-xs font-bold shadow-[0_4px_14px_-6px_rgba(95,208,142,.6)] transition ${!canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
+              className={`h-9 flex-none self-end rounded-lg px-4 text-xs font-bold shadow-[0_6px_20px_-8px_rgba(95,208,142,.55)] transition ${!canGenerate ? "cursor-not-allowed bg-surface-2 text-muted" : generating ? "bg-gradient-to-b from-[#f6ec8a] to-yellow text-[#2c2700] hover:brightness-110" : "bg-gradient-to-b from-[#7fe3a8] to-ok text-[#04241a] hover:brightness-110"}`}
             >
               {!canGenerate ? "Thiếu thông tin" : activeSlotText(cell)}
             </button>
           </div>
-          {cell.status === "failed" && cell.error && <p className="text-xs text-bad">{cell.error}</p>}
-          {(!cell.startAssetId || !hasAudio) && (
-            <p className="text-[10px] text-yellow/70">Cần chọn ảnh Avatar và audio_id/sound_file để generate.</p>
-          )}
         </div>
 
         {/* result slots */}
@@ -2383,9 +2410,9 @@ function AvatarCell({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className={`flex flex-col gap-1 ${className ?? ""}`}>
       <span className="mono text-[9px] text-muted">{label}</span>
       {children}
     </label>
@@ -2394,7 +2421,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function SegmentedGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface-2">
+    <div className="flex h-9 w-full overflow-hidden rounded-lg border border-border bg-surface-2">
       {children}
     </div>
   );
@@ -2419,7 +2446,7 @@ function SegmentedButton({
       disabled={disabled}
       title={title}
       onClick={onClick}
-      className={`min-w-[44px] border-r border-border px-2 text-[11px] font-semibold transition last:border-r-0 ${
+      className={`min-w-[44px] flex-1 border-r border-border px-2 text-[11px] font-semibold transition last:border-r-0 ${
         active
           ? "bg-accent text-[#04212c]"
           : disabled
@@ -2451,7 +2478,7 @@ function FeatureToggle({
       disabled={disabled}
       title={title}
       onClick={onClick}
-      className={`mt-4 h-9 rounded-lg border px-3 text-[11px] font-semibold transition ${
+      className={`h-9 rounded-lg border px-3 text-[11px] font-semibold transition ${
         active
           ? "border-accent bg-accent/15 text-accent-soft"
           : disabled

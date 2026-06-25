@@ -206,7 +206,7 @@ export async function updateCellAction(
     videoRatio?: KlingVideoRatio;
     nativeAudio?: boolean;
     multiShot?: boolean;
-    startAssetId?: string;
+    startAssetId?: string | null;
     endAssetId?: string | null;
   },
 ) {
